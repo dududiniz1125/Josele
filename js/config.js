@@ -13,5 +13,5 @@ window.JOSELE_CONFIG = {
   // The address players share with friends.
   SITE_URL: 'https://josele.io',
   SUPABASE_URL: 'https://cvtbfehtshdhbaiwnqpu.supabase.co',
-  SUPABASE_ANON_KEY: ''
+  SUPABASE_ANON_KEY: 'sb_publishable_MDjshB1KRCNSLyeOwF-qQA_uzCjgNp7'
 };
