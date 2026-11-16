@@ -8,8 +8,10 @@
 // NEVER paste the "secret" / "service_role" key, the database password or the
 // Google client secret into this file or anywhere else in this repository.
 //
-// Leave both empty to run the game offline-only (no leaderboard, no login).
+// Leave either one empty to run the game offline-only (no leaderboard, no login).
 window.JOSELE_CONFIG = {
-  SUPABASE_URL: '',
+  // The address players share with friends.
+  SITE_URL: 'https://josele.io',
+  SUPABASE_URL: 'https://cvtbfehtshdhbaiwnqpu.supabase.co',
   SUPABASE_ANON_KEY: ''
 };

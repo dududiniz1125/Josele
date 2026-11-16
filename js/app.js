@@ -9,6 +9,7 @@
   var SEEN_KEY = 'josele-seen-help';
   var NAME_KEY = 'josele-name';
   var WORD_LEN = 4;
+  var SITE_URL = (window.JOSELE_CONFIG && window.JOSELE_CONFIG.SITE_URL) || (location.origin + location.pathname);
 
   var E = window.JoseleEngine;
   var Names = window.JoseleNames;
@@ -261,7 +262,7 @@
       return matches(w).map(function (m) { return m ? '🟩' : '⬛'; }).join('');
     });
     return GAME_NAME + ' #' + puzzle.number + ' — ' + steps + ' step' + (steps === 1 ? '' : 's') +
-      ' (best: ' + puzzle.optimal + ')\n' + lines.join('\n') + '\n' + location.origin + location.pathname;
+      ' (best: ' + puzzle.optimal + ')\n' + lines.join('\n') + '\n' + SITE_URL;
   }
 
   function copy(text) {

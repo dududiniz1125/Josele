@@ -56,7 +56,7 @@ Replace `assets/bg.jpg` with your own photo (keep the same file name). A portrai
 | Colours | `:root` variables in `css/style.css` |
 | Word lists | `js/words.js` (then run `node scripts/build-sql.js` and re-run `supabase/setup.sql` in Supabase) |
 | Name filter | `js/names.js` (same: rebuild and re-run the SQL) |
-| Supabase keys | `js/config.js` |
+| Supabase keys, share link address | `js/config.js` |
 
 Changing the word lists or the step range changes which start word each date gets, so do it before sharing the link.
 

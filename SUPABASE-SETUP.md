@@ -2,7 +2,7 @@
 
 About 15 minutes. You need a free account at supabase.com. Menu names in the Supabase dashboard change from time to time; if one is slightly different, look for the closest match.
 
-Your site address is used below as `https://josele-kelo7.vercel.app`. If yours is different, use yours.
+The site lives at `https://josele.io`, which redirects to `https://www.josele.io`. Both addresses are listed below because the login comes back to whichever one the player is on.
 
 ## 1. Create the project
 
@@ -27,8 +27,8 @@ Every player gets an invisible guest account so they can be on the leaderboard w
 
 **Authentication → URL Configuration**
 
-- **Site URL:** `https://josele-kelo7.vercel.app`
-- **Redirect URLs:** add `https://josele-kelo7.vercel.app/**` (and `http://localhost:8000/**` if you test on your computer).
+- **Site URL:** `https://www.josele.io`
+- **Redirect URLs:** add `https://www.josele.io/**` and `https://josele.io/**` (and `http://localhost:8000/**` if you test on your computer).
 
 ## 5. Paste the two public values into the game
 
@@ -65,7 +65,7 @@ At this point names, guest play and both leaderboards work. Steps 6 and 7 add lo
 1. Go to console.cloud.google.com, create a project (any name).
 2. **APIs & Services → OAuth consent screen**: choose External, fill in the app name (Josele) and your email, save. Then publish the app (otherwise only test users you list can log in).
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID → Web application.**
-   - **Authorized JavaScript origins:** `https://josele-kelo7.vercel.app`
+   - **Authorized JavaScript origins:** `https://www.josele.io` and `https://josele.io`
    - **Authorized redirect URIs:** the callback address Supabase shows you in the next step. It looks like `https://abcdefgh.supabase.co/auth/v1/callback`.
 4. Google gives you a **Client ID** and a **Client secret**.
 5. In Supabase: **Authentication → Sign In / Providers → Google** → turn it on, paste the Client ID and Client secret there, Save.

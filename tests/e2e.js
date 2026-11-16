@@ -88,8 +88,8 @@ window.supabase = { createClient: function () {
     if (url.pathname === '/js/vendor/supabase.js') { res.setHeader('content-type', TYPES['.js']); return res.end(FAKE_SUPABASE); }
     if (url.pathname === '/js/config.js' && !url.searchParams.has('real')) {
       res.setHeader('content-type', TYPES['.js']);
-      return res.end(server.offline ? "window.JOSELE_CONFIG = {SUPABASE_URL:'',SUPABASE_ANON_KEY:''};"
-        : "window.JOSELE_CONFIG = {SUPABASE_URL:'http://fake',SUPABASE_ANON_KEY:'fake'};");
+      return res.end(server.offline ? "window.JOSELE_CONFIG = {SITE_URL:'https://josele.io',SUPABASE_URL:'',SUPABASE_ANON_KEY:''};"
+        : "window.JOSELE_CONFIG = {SITE_URL:'https://josele.io',SUPABASE_URL:'http://fake',SUPABASE_ANON_KEY:'fake'};");
     }
     const file = path.join(ROOT, url.pathname === '/' ? 'index.html' : url.pathname);
     if (!file.startsWith(ROOT) || !fs.existsSync(file)) { res.statusCode = 404; return res.end(); }
@@ -164,7 +164,7 @@ window.supabase = { createClient: function () {
   await a.click('.btn:text("Share")');
   const shared = await a.evaluate(() => navigator.clipboard.readText());
   const grid = best.slice(1).map((w) => expectMatch(w).map((m) => (m ? '🟩' : '⬛')).join(''));
-  assert.equal(shared, `Josele #${await a.evaluate(() => JoseleEngine.puzzleNumber(JoseleEngine.dateKey()))} — ${best.length - 1} steps (best: ${best.length - 1})\n${grid.join('\n')}\n${URL_}`);
+  assert.equal(shared, `Josele #${await a.evaluate(() => JoseleEngine.puzzleNumber(JoseleEngine.dateKey()))} — ${best.length - 1} steps (best: ${best.length - 1})\n${grid.join('\n')}\nhttps://josele.io`);
   step('tiles are green only where they match JOSE; share text uses 🟩/⬛ per step');
   console.log(shared.split('\n').map((l) => '        ' + l).join('\n'));
 
