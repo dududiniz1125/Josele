@@ -16,10 +16,18 @@ python3 -m http.server 8000
 ## Tests
 
 ```bash
-node tests/test.js
+node tests/test.js                 # game rules, no install needed
+cd tests && npm install && npm test   # the above + the database rules in a real Postgres (PGlite)
+node tests/e2e.js                  # optional browser test, needs Playwright
 ```
 
-Checks that JOSE is reachable from every start word, that every daily puzzle is 3–6 steps, that the daily word is deterministic for a date (in the America/Sao_Paulo timezone), and that the one-letter rule rejects anagrams and two-letter changes.
+- `tests/test.js`: JOSE reachable from every start word, 3–6 step puzzles, same word for a date, one-letter rule, name filter.
+- `tests/sql.test.js`: runs `supabase/setup.sql` and checks that the server picks the same start word as the browser, rejects invalid or forged results, allows one result per player per day, ranks the leaderboards correctly, blocks direct table writes, and moves guest progress into an account.
+- `tests/e2e.js`: plays the game in a browser against those same database rules (with a stand-in for Supabase login).
+
+## Online features (Supabase)
+
+Names on the leaderboard, log in and streak sync need a free Supabase project. Until the two values in `js/config.js` are filled in, the game still works, just without leaderboard and login. See **SUPABASE-SETUP.md** for the step-by-step guide.
 
 ## Your background photo
 
@@ -29,7 +37,7 @@ Replace `assets/bg.jpg` with your own photo (keep the same file name). A portrai
 
 **GitHub Pages**
 
-1. Push this code to GitHub (merge it into `main`).
+1. Push this code to GitHub.
 2. Repo → Settings → Pages → Source: "Deploy from a branch" → pick `main` and `/ (root)` → Save.
 3. After a minute the game is live at `https://<your-username>.github.io/<repo-name>/`.
 
@@ -46,7 +54,9 @@ Replace `assets/bg.jpg` with your own photo (keep the same file name). A portrai
 | Target word, step range | `TARGET`, `MIN_STEPS`, `MAX_STEPS` in `js/engine.js` |
 | Game name, rain emoji | top of `js/app.js` |
 | Colours | `:root` variables in `css/style.css` |
-| Word lists | `js/words.js` |
+| Word lists | `js/words.js` (then run `node scripts/build-sql.js` and re-run `supabase/setup.sql` in Supabase) |
+| Name filter | `js/names.js` (same: rebuild and re-run the SQL) |
+| Supabase keys | `js/config.js` |
 
 Changing the word lists or the step range changes which start word each date gets, so do it before sharing the link.
 

@@ -1,0 +1,11 @@
+{
+  "name": "josele-tests",
+  "private": true,
+  "description": "Dev-only test dependencies for Josele. The game itself needs no install and no build.",
+  "scripts": {
+    "test": "node test.js && node sql.test.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.2.17"
+  }
+}

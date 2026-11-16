@@ -7,15 +7,21 @@
   var STATE_KEY = 'josele-state-v1';
   var STATS_KEY = 'josele-stats-v1';
   var SEEN_KEY = 'josele-seen-help';
+  var NAME_KEY = 'josele-name';
   var WORD_LEN = 4;
 
   var E = window.JoseleEngine;
+  var Names = window.JoseleNames;
+  var Online = window.JoseleOnline;
   var game = E.createGame(window.JoseleWords.VALID_WORDS, window.JoseleWords.START_WORDS);
 
-  var puzzle;        // today's puzzle
-  var state;         // { date, rows: [start, ...guesses], done }
-  var input = '';    // letters typed in the current row
-  var busy = false;  // true while the win sequence plays
+  var puzzle;            // today's puzzle
+  var state;             // { date, rows: [start, ...guesses], done }
+  var input = '';        // letters typed in the current row
+  var busy = false;      // true while the win sequence plays
+  var modalLocked = false;
+  var openName = null;   // which modal is open
+  var lbTab = 'today';
 
   var $ = function (id) { return document.getElementById(id); };
   var boardEl = $('board'), wrapEl = $('board-wrap'), keyboardEl = $('keyboard');
@@ -27,6 +33,12 @@
     if (cls) n.className = cls;
     if (text !== undefined) n.textContent = text;
     return n;
+  }
+  function button(cls, text, onClick) {
+    var b = el('button', cls, text);
+    b.type = 'button';
+    if (onClick) b.addEventListener('click', onClick);
+    return b;
   }
 
   /* ---------- storage ---------- */
@@ -48,6 +60,15 @@
       lastDate: s.lastDate || null
     };
   }
+  function getName() {
+    var saved = load(NAME_KEY, null);
+    var v = Names.validate(saved && saved.name);
+    return v.ok ? v.name : '';
+  }
+  function setLocalName(name) {
+    save(NAME_KEY, { name: name });
+    renderAccountButton();
+  }
 
   // Saved rows are only trusted if they still form a legal ladder for today's puzzle.
   function validSavedRows(rows) {
@@ -60,31 +81,33 @@
 
   /* ---------- rendering ---------- */
 
+  // A tile is highlighted when its letter is already in the right place for JOSE.
+  function matches(word) {
+    var out = [];
+    for (var i = 0; i < WORD_LEN; i++) out.push(word[i] === E.TARGET[i]);
+    return out;
+  }
+
   function buildRow(word, opts) {
     opts = opts || {};
     var row = el('div', 'row' + (opts.cls ? ' ' + opts.cls : ''));
+    var m = opts.current ? [] : matches(word);
     for (var i = 0; i < WORD_LEN; i++) {
       var t = el('div', 'tile', word[i] || '');
-      if (opts.changed === i) t.classList.add('changed');
+      if (m[i]) t.classList.add('match');
       if (word[i] && opts.current) t.classList.add('filled');
       row.appendChild(t);
     }
     return row;
   }
 
-  function ladderRows(words, markWin) {
-    return words.map(function (w, i) {
-      var isWin = markWin && w === E.TARGET;
-      return buildRow(w, {
-        changed: i > 0 && !isWin ? E.diffIndex(words[i - 1], w) : -1,
-        cls: isWin ? 'win' : ''
-      });
-    });
+  function ladderRows(words) {
+    return words.map(function (w) { return buildRow(w, { cls: w === E.TARGET ? 'win' : '' }); });
   }
 
   function renderBoard(revealLast) {
     boardEl.textContent = '';
-    var rows = ladderRows(state.rows, true);
+    var rows = ladderRows(state.rows);
     rows.forEach(function (r) { boardEl.appendChild(r); });
     if (revealLast && rows.length > 1) rows[rows.length - 1].classList.add('reveal');
     if (!state.done) boardEl.appendChild(buildRow(input, { cls: 'current', current: true }));
@@ -106,9 +129,17 @@
     }
   }
 
+  function renderAccountButton() {
+    var b = $('account-btn');
+    var u = Online.user();
+    var name = getName();
+    if (u && !u.isAnonymous) b.textContent = '👤 ' + (name || 'Account');
+    else b.textContent = Online.enabled ? 'Log in' : (name ? '👤 ' + name : 'Name');
+  }
+
   function mini(words) {
     var box = el('div', 'mini');
-    ladderRows(words, true).forEach(function (r) { box.appendChild(r); });
+    ladderRows(words).forEach(function (r) { box.appendChild(r); });
     return box;
   }
 
@@ -117,7 +148,7 @@
     toastEl.textContent = msg;
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1600);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1900);
   }
 
   function shake() {
@@ -149,7 +180,10 @@
     }
     save(STATE_KEY, state);
     renderBoard(true);
-    if (state.done) celebrate();
+    if (state.done) {
+      Online.sync(); // sends the result to the leaderboard
+      celebrate();
+    }
   }
 
   function buildKeyboard() {
@@ -220,12 +254,14 @@
     setTimeout(function () { busy = false; openModal('result'); }, 2200);
   }
 
+  // One line of squares per step: green where the letter is in JOSE's place.
   function shareText() {
     var steps = state.rows.length - 1;
-    var squares = new Array(steps).join('🟪') + '🟨';
-    var url = location.origin + location.pathname;
-    return GAME_NAME + ' #' + puzzle.number + ' ' + squares + ' ' + steps + ' step' + (steps === 1 ? '' : 's') +
-      ' (best: ' + puzzle.optimal + ') ' + url;
+    var lines = state.rows.slice(1).map(function (w) {
+      return matches(w).map(function (m) { return m ? '🟩' : '⬛'; }).join('');
+    });
+    return GAME_NAME + ' #' + puzzle.number + ' — ' + steps + ' step' + (steps === 1 ? '' : 's') +
+      ' (best: ' + puzzle.optimal + ')\n' + lines.join('\n') + '\n' + location.origin + location.pathname;
   }
 
   function copy(text) {
@@ -247,24 +283,227 @@
     return ok ? Promise.resolve() : Promise.reject(new Error('copy failed'));
   }
 
+  /* ---------- name + account ---------- */
+
+  // A text box + button that validates and saves the player's name.
+  function nameForm(buttonLabel, onSaved) {
+    var form = el('form', 'form');
+    var field = el('input', 'field');
+    field.type = 'text';
+    field.maxLength = Names.MAX_LENGTH;
+    field.placeholder = 'Your name';
+    field.autocomplete = 'nickname';
+    field.setAttribute('aria-label', 'Your name');
+    field.value = getName();
+    var error = el('p', 'error');
+    var b = el('button', 'btn', buttonLabel);
+    b.type = 'submit';
+    form.appendChild(field);
+    form.appendChild(error);
+    form.appendChild(b);
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var v = Names.validate(field.value);
+      if (!v.ok) { error.textContent = v.reason; return; }
+      b.disabled = true;
+      // The server applies the same rules; it has the final say when online.
+      Promise.resolve(Online.user() ? Online.setName(v.name) : v.name).then(function (saved) {
+        setLocalName(saved || v.name);
+        onSaved();
+      }, function (err) {
+        b.disabled = false;
+        error.textContent = err.message || 'Could not save that name';
+      });
+    });
+    setTimeout(function () { field.focus(); }, 50);
+    return form;
+  }
+
+  function afterNameChosen() {
+    modalLocked = false;
+    backdropEl.hidden = true;
+    openName = null;
+    Online.sync();
+    if (!load(SEEN_KEY, null)) openModal('help');
+  }
+
+  function loginSection(body) {
+    body.appendChild(el('div', 'divider', 'Log in / Sign up'));
+    body.appendChild(el('p', 'small', 'Optional. Keeps your name, stats and streak on every device.'));
+    var status = el('p', 'error');
+    var google = button('btn google', 'Continue with Google', function () {
+      google.disabled = true;
+      Online.loginGoogle().catch(function (err) {
+        google.disabled = false;
+        status.textContent = err.message || 'Could not start Google login';
+      });
+    });
+    var wrap = el('div', 'form');
+    wrap.appendChild(google);
+    body.appendChild(wrap);
+
+    var form = el('form', 'form-row');
+    form.style.marginTop = '10px';
+    var email = el('input', 'field');
+    email.type = 'email';
+    email.required = true;
+    email.placeholder = 'you@email.com';
+    email.autocomplete = 'email';
+    email.setAttribute('aria-label', 'Email address');
+    var send = el('button', 'btn secondary', 'Email me a link');
+    send.type = 'submit';
+    form.appendChild(email);
+    form.appendChild(send);
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      send.disabled = true;
+      status.textContent = '';
+      Online.loginEmail(email.value.trim()).then(function () {
+        status.style.color = '#5fd583';
+        status.textContent = 'Check your email and open the link on this device.';
+      }, function (err) {
+        send.disabled = false;
+        status.textContent = err.message || 'Could not send the email';
+      });
+    });
+    body.appendChild(form);
+    body.appendChild(status);
+  }
+
+  /* ---------- leaderboard ---------- */
+
+  function leaderboardTable(kind, data) {
+    var streaks = kind === 'streaks';
+    var table = el('table', 'lb');
+    var head = el('tr');
+    ['#', 'Player', streaks ? 'Streak' : 'Steps', streaks ? 'Best' : ''].forEach(function (h, i) {
+      var th = el('th', i >= 2 ? 'num' : '', h);
+      head.appendChild(th);
+    });
+    table.appendChild(head);
+    function addRow(r) {
+      var tr = el('tr', r.me ? 'me' : '');
+      tr.appendChild(el('td', 'rank', r.rank == null ? '–' : String(r.rank)));
+      tr.appendChild(el('td', 'name', r.name + (r.me ? ' (you)' : '')));
+      if (streaks) {
+        tr.appendChild(el('td', 'num', '🔥 ' + r.current));
+        tr.appendChild(el('td', 'num', String(r.best)));
+      } else {
+        tr.appendChild(el('td', 'num', String(r.steps)));
+        tr.appendChild(el('td', 'num', r.star ? '⭐' : ''));
+      }
+      table.appendChild(tr);
+    }
+    data.rows.forEach(addRow);
+    var inList = data.rows.some(function (r) { return r.me; });
+    if (data.me && !inList) {
+      if (data.rows.length) {
+        var gap = el('tr', 'gap');
+        var td = el('td', '', '⋯');
+        td.colSpan = 4;
+        gap.appendChild(td);
+        table.appendChild(gap);
+      }
+      addRow(data.me);
+    }
+    return table;
+  }
+
+  function renderLeaderboard(container) {
+    container.textContent = '';
+    if (!Online.enabled) {
+      container.appendChild(el('p', '', 'The leaderboard is not switched on yet.'));
+      container.appendChild(el('p', 'small', 'Site owner: add your Supabase keys in js/config.js (see the README).'));
+      return;
+    }
+    var kind = lbTab;
+    container.appendChild(el('p', 'small', 'Loading…'));
+    Online.leaderboard(kind).then(function (data) {
+      if (kind !== lbTab || openName !== 'leaderboard') return;
+      container.textContent = '';
+      if (!data.rows.length && !data.me) {
+        container.appendChild(el('p', '', kind === 'today'
+          ? 'Nobody has solved today\'s puzzle yet. Be the first!'
+          : 'No active streaks yet.'));
+        return;
+      }
+      var wrap = el('div', 'lb-wrap');
+      wrap.appendChild(leaderboardTable(kind, data));
+      container.appendChild(wrap);
+      if (kind === 'today') {
+        container.appendChild(el('p', 'small', data.total + ' player' + (data.total === 1 ? '' : 's') +
+          ' solved it today · ⭐ = best possible' + (data.me ? '' : ' · solve it to get on the board')));
+      } else {
+        container.appendChild(el('p', 'small', 'Days solved in a row. Miss a day and it resets.'));
+      }
+    }, function (err) {
+      if (kind !== lbTab || openName !== 'leaderboard') return;
+      container.textContent = '';
+      container.appendChild(el('p', '', 'Could not load the leaderboard.'));
+      container.appendChild(el('p', 'small', err.message || ''));
+    });
+  }
+
   /* ---------- modals ---------- */
 
   var MODALS = {
+    name: function (body) {
+      body.appendChild(el('p', '', 'This is how you\'ll appear on the leaderboard.'));
+      body.appendChild(nameForm('Play', afterNameChosen));
+      body.appendChild(el('p', 'small', 'Up to ' + Names.MAX_LENGTH + ' letters, numbers and spaces.'));
+      return 'What\'s your name?';
+    },
+
+    account: function (body) {
+      var u = Online.user();
+      body.appendChild(nameForm('Save name', function () { toast('Name saved'); closeModal(); }));
+      if (!Online.enabled) {
+        body.appendChild(el('p', 'small', 'Log in and leaderboards are not switched on yet.'));
+      } else if (u && !u.isAnonymous) {
+        body.appendChild(el('div', 'divider', 'Account'));
+        body.appendChild(el('p', '', 'Logged in' + (u.email ? ' as ' + u.email : '') + '.'));
+        body.appendChild(el('p', 'small', 'Your name, stats and streak follow you to any device.'));
+        body.appendChild(button('btn secondary', 'Log out', function () {
+          Online.logout().then(function () {
+            // This device goes back to a fresh guest; the account keeps everything.
+            try { localStorage.removeItem(STATS_KEY); localStorage.removeItem(STATE_KEY); } catch (err) { /* ignore */ }
+            location.reload();
+          });
+        }));
+      } else {
+        loginSection(body);
+      }
+      return 'Your profile';
+    },
+
+    leaderboard: function (body) {
+      var tabs = el('div', 'tabs');
+      var content = el('div');
+      [['today', 'Today'], ['streaks', 'Streaks']].forEach(function (t) {
+        var b = button('tab' + (lbTab === t[0] ? ' active' : ''), t[1], function () {
+          lbTab = t[0];
+          Array.prototype.forEach.call(tabs.children, function (c) { c.classList.toggle('active', c === b); });
+          renderLeaderboard(content);
+        });
+        tabs.appendChild(b);
+      });
+      body.appendChild(tabs);
+      body.appendChild(content);
+      renderLeaderboard(content);
+      return 'Leaderboard';
+    },
+
     help: function (body) {
       body.appendChild(el('p', '', 'Turn today\'s word into JOSE, one step at a time.'));
       body.appendChild(el('p', '', 'Each step, change exactly one letter to make another real 4-letter word. No adding, removing or rearranging letters.'));
       var ex = el('div', 'example');
       ex.appendChild(mini(['BARN']));
       ex.appendChild(el('span', 'arrow', '→'));
-      var born = el('div', 'mini');
-      born.appendChild(buildRow('BORN', { changed: 1 }));
-      ex.appendChild(born);
+      ex.appendChild(mini(['BORN']));
       body.appendChild(ex);
+      body.appendChild(el('p', '', 'A green tile means that letter is already in the right place for JOSE, like the O in BORN.'));
       body.appendChild(el('p', '', 'There is no guess limit. Fewer steps is better, and everyone gets the same word each day.'));
-      var b = el('button', 'btn', 'Click here to play!');
-      b.type = 'button';
-      b.addEventListener('click', closeModal);
-      body.appendChild(b);
+      body.appendChild(button('btn', 'Click here to play!', closeModal));
       return 'How to play';
     },
 
@@ -322,29 +561,73 @@
       });
       body.appendChild(paths);
 
-      var b = el('button', 'btn', 'Share');
-      b.type = 'button';
-      b.addEventListener('click', function () {
+      var actions = el('div', 'actions');
+      actions.appendChild(button('btn', 'Share', function () {
         copy(shareText()).then(
           function () { toast('Copied to clipboard!'); },
           function () { toast('Could not copy'); }
         );
-      });
-      body.appendChild(b);
+      }));
+      if (Online.enabled) {
+        actions.appendChild(button('btn secondary', 'Leaderboard', function () { lbTab = 'today'; openModal('leaderboard'); }));
+      }
+      body.appendChild(actions);
       body.appendChild(el('p', 'small', 'Next puzzle at midnight, Brasília time.'));
       return 'Nice one!';
     }
   };
 
   function openModal(name) {
+    openName = name;
+    modalLocked = name === 'name';
+    $('modal-close').hidden = modalLocked;
     modalBodyEl.textContent = '';
     modalTitleEl.textContent = MODALS[name](modalBodyEl);
     backdropEl.hidden = false;
     backdropEl.querySelector('.modal').scrollTop = 0;
   }
   function closeModal() {
+    if (modalLocked) return;
+    var was = openName;
     backdropEl.hidden = true;
-    save(SEEN_KEY, { seen: true });
+    openName = null;
+    if (was === 'help') save(SEEN_KEY, { seen: true });
+  }
+
+  /* ---------- online ---------- */
+
+  // The server's view of this player arrived (on load, after a win, after logging in).
+  function onProfile(profile, user) {
+    if (profile.name && profile.name !== getName()) setLocalName(profile.name);
+    if (!user.isAnonymous) {
+      // A real account is the source of truth for stats, so they match on every device.
+      save(STATS_KEY, {
+        played: profile.played, streak: profile.current_streak, maxStreak: profile.best_streak,
+        optimal: profile.optimal, dist: profile.dist, lastDate: profile.last_solved
+      });
+      // Already solved today on another device: show that board instead of a fresh one.
+      if (!state.done && !busy && profile.today === puzzle.date && Array.isArray(profile.today_path)) {
+        var saved = { date: puzzle.date, rows: profile.today_path, done: true };
+        if (validSavedRows(saved.rows)) {
+          state = saved;
+          input = '';
+          save(STATE_KEY, state);
+          renderBoard(false);
+        }
+      }
+      if (openName === 'stats') openModal('stats');
+    }
+    renderAccountButton();
+    if (openName === 'account' || openName === 'leaderboard') openModal(openName);
+    if (openName === 'name' && getName()) afterNameChosen();
+  }
+
+  // Supabase reports a failed login in the URL when it sends the player back.
+  function reportAuthError() {
+    var m = /error_description=([^&]+)/.exec(location.hash + '&' + location.search);
+    if (!m) return;
+    toast(decodeURIComponent(m[1].replace(/\+/g, ' ')));
+    history.replaceState(null, '', location.pathname);
   }
 
   /* ---------- lifecycle ---------- */
@@ -366,16 +649,19 @@
   // Roll over to the new puzzle when the Sao Paulo date changes.
   function checkDate() {
     if (!busy && E.dateKey() !== puzzle.date) {
-      backdropEl.hidden = true;
+      if (!modalLocked) { backdropEl.hidden = true; openName = null; }
       startDay();
       toast('New puzzle!');
+      Online.sync();
     }
   }
 
   buildKeyboard();
   startDay();
+  renderAccountButton();
+  reportAuthError();
 
-  document.querySelector('.footer').addEventListener('click', function (ev) {
+  document.getElementById('app').addEventListener('click', function (ev) {
     var b = ev.target.closest('[data-open]');
     if (!b) return;
     b.blur();
@@ -386,6 +672,14 @@
   setInterval(checkDate, 20000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkDate(); });
 
-  if (state.done) openModal('result');
+  if (!getName()) openModal('name');
+  else if (state.done) openModal('result');
   else if (!load(SEEN_KEY, null)) openModal('help');
+
+  Online.init({
+    getName: getName,
+    getGame: function () { return { day: state.date, rows: state.rows, done: state.done }; },
+    onProfile: onProfile,
+    onError: toast
+  });
 })();

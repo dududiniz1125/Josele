@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const { VALID_WORDS, START_WORDS } = require('../js/words.js');
 const E = require('../js/engine.js');
+const N = require('../js/names.js');
 
 let passed = 0;
 function test(name, fn) {
@@ -82,6 +83,16 @@ test('checkGuess returns the right message for each kind of bad guess', () => {
   assert.equal(game.checkGuess('BRAN', ['BARN']).reason, 'Change exactly one letter');
   assert.equal(game.checkGuess('BORE', ['BARN']).reason, 'Change exactly one letter');
   assert.equal(game.checkGuess('BARN', ['BARN', 'BORN']).reason, 'Already used that word');
+});
+
+test('player names: 15 characters, letters/numbers/spaces, no offensive words', () => {
+  for (const ok of ['José', 'João Pedro', 'Dudu 10', 'Cassio', 'Paulo', 'a', 'x'.repeat(15)]) {
+    assert.equal(N.validate(ok).ok, true, ok);
+  }
+  assert.equal(N.validate('  Ana   Maria ').name, 'Ana Maria');
+  for (const bad of ['', '   ', 'x'.repeat(16), 'hi!', '<b>bold</b>', 'a_b', 'sh1t', 'F U C K', 'Puta', 'PORRA', 'cu', 'filho da puta']) {
+    assert.equal(N.validate(bad).ok, false, bad);
+  }
 });
 
 console.log(`\n${passed} passed, ${game.starts.length} eligible start words, today would be ` +
