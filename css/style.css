@@ -1,7 +1,7 @@
 :root {
   --ink: #f3f4fa;
   --muted: #a4a9c3;
-  --panel: rgba(13, 15, 28, 0.74);
+  --panel: rgba(13, 15, 28, 0.62);
   --line: rgba(255, 255, 255, 0.26);
   --tile: rgba(255, 255, 255, 0.05);
   --changed: #7c5cff;
@@ -31,7 +31,7 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
 .bg {
   position: fixed;
   inset: 0;
-  background: #0f1220 url("../assets/bg.jpg") center / cover no-repeat;
+  background: #0f1220 url("../assets/bg.jpg") center 35% / cover no-repeat;
 }
 
 /* Blurred dark panel that holds the whole game */
@@ -46,8 +46,8 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
-  -webkit-backdrop-filter: blur(7px);
-  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
 }
 
