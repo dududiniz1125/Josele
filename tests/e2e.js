@@ -153,12 +153,28 @@ window.supabase = { createClient: function () {
   await play(a, best.slice(1, -1));
   assert.deepEqual(await rowMatches(a), best.slice(0, -1).map(expectMatch));
   assert.equal(await a.$$eval('.tile.changed', (t) => t.length), 0);
+  // Give up: asks first, then resets to the start word; "No" keeps the board.
+  assert.equal(await a.isVisible('#giveup-btn'), true);
+  await a.click('#giveup-btn');
+  assert.equal(await a.textContent('#modal-title'), 'Want to give up?');
+  await shot(a, 'phone-giveup');
+  await a.click('.btn:text("No, keep playing")');
+  assert.equal(await a.locator('#board .row:not(.current)').count(), best.length - 1);
+  await a.click('#giveup-btn');
+  await a.click('.btn:text("Yes, start over")');
+  assert.equal(await a.locator('#board .row:not(.current)').count(), 1);
+  assert.equal(await a.isVisible('#giveup-btn'), false, 'nothing to give up at the start');
+  await a.reload();
+  assert.equal(await a.locator('#board .row:not(.current)').count(), 1, 'reset survives a refresh');
+  await play(a, best.slice(1, -1));
+  step('give up asks for confirmation and resets the board for another try');
   await a.keyboard.type('JO');
   await shot(a, 'phone-board');
   await a.keyboard.press('Backspace'); await a.keyboard.press('Backspace');
   await noScroll(a);
   await play(a, ['JOSE']);
   assert.deepEqual((await rowMatches(a)).pop(), [true, true, true, true]);
+  assert.equal(await a.isVisible('#giveup-btn'), false, 'no give up after winning');
   await a.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
   await shot(a, 'phone-result');
   await a.click('.btn:text("Share")');

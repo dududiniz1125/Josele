@@ -132,6 +132,8 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
 .footer { flex: none; display: flex; justify-content: center; flex-wrap: wrap; gap: 2px 14px; padding: 4px 0 2px; }
 .link { background: none; border: 0; padding: 4px 2px; font-size: 0.78rem; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
 .link:hover { color: var(--ink); }
+.link[hidden] { display: none; }
+.link.giveup { color: #ff9d9d; font-weight: 700; }
 
 /* Toast */
 .toast {

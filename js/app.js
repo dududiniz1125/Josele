@@ -114,6 +114,8 @@
     if (!state.done) boardEl.appendChild(buildRow(input, { cls: 'current', current: true }));
     $('step-count').textContent = state.rows.length - 1;
     keyboardEl.classList.toggle('done', state.done);
+    // Giving up only makes sense once there is something to undo.
+    $('giveup-btn').hidden = state.done || state.rows.length < 2;
     wrapEl.scrollTop = wrapEl.scrollHeight;
   }
 
@@ -185,6 +187,16 @@
       Online.sync(); // sends the result to the leaderboard
       celebrate();
     }
+  }
+
+  // Back to the start word. Nothing is recorded, so the player can try as often as they like.
+  function giveUp() {
+    if (state.done || busy) return;
+    state = { date: puzzle.date, rows: [puzzle.start], done: false };
+    input = '';
+    save(STATE_KEY, state);
+    renderBoard(false);
+    toast('Back to ' + puzzle.start + '. Try again!');
   }
 
   function buildKeyboard() {
@@ -532,6 +544,18 @@
       });
       body.appendChild(dist);
       return 'Stats';
+    },
+
+    giveup: function (body) {
+      body.appendChild(el('p', '', 'This clears your steps and takes you back to ' + puzzle.start + ' so you can try again.'));
+      var actions = el('div', 'actions');
+      actions.appendChild(button('btn', 'Yes, start over', function () {
+        closeModal();
+        giveUp();
+      }));
+      actions.appendChild(button('btn secondary', 'No, keep playing', closeModal));
+      body.appendChild(actions);
+      return 'Want to give up?';
     },
 
     yesterday: function (body) {
