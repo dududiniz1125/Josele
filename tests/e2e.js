@@ -129,6 +129,16 @@ window.supabase = { createClient: function () {
     await p.waitForTimeout(250);
   };
   const step = (msg) => console.log('  ok  ' + msg);
+  const pick = async (p, which) => {
+    await p.waitForSelector('#modal-title:text("What do you want to play?")');
+    await p.click(`[data-mode="${which}"]`);
+  };
+  // First visit: name, then Daily/Unlimited, then the how-to-play popup.
+  const join = async (p, name, which) => {
+    await p.fill('.field', name); await p.click('.btn');
+    await pick(p, which || 'daily');
+    await p.click('.btn:text("Click here to play!")');
+  };
 
   // --- Player 1 on a phone: name popup, new highlighting, win, share, leaderboard.
   const a = await open('iPhone 13');
@@ -142,6 +152,9 @@ window.supabase = { createClient: function () {
   assert.equal(await a.textContent('.error'), 'Letters, numbers and spaces only');
   assert.equal(await a.getAttribute('.field', 'maxlength'), '15');
   await a.fill('.field', 'Dudu'); await a.click('.btn');
+  assert.equal(await a.textContent('#modal-title'), 'What do you want to play?');
+  await shot(a, 'phone-mode');
+  await pick(a, 'daily');
   await a.waitForSelector('#modal-title:text("How to play")');
   await shot(a, 'phone-help');
   await a.click('.btn');
@@ -165,6 +178,7 @@ window.supabase = { createClient: function () {
   assert.equal(await a.locator('#board .row:not(.current)').count(), 1);
   assert.equal(await a.isVisible('#giveup-btn'), false, 'nothing to give up at the start');
   await a.reload();
+  await pick(a, 'daily');
   assert.equal(await a.locator('#board .row:not(.current)').count(), 1, 'reset survives a refresh');
   await play(a, best.slice(1, -1));
   step('give up asks for confirmation and resets the board for another try');
@@ -187,7 +201,9 @@ window.supabase = { createClient: function () {
   await openLb(a);
   assert.deepEqual(await lbRows(a), [`[me] 1|Dudu (you)|${best.length - 1}|⭐`]);
   await a.reload();
-  assert.equal(await a.textContent('#modal-title'), 'Nice one!', 'name is not asked again');
+  assert.equal(await a.textContent('#modal-title'), 'What do you want to play?', 'name is not asked again');
+  await pick(a, 'daily');
+  assert.equal(await a.textContent('#modal-title'), 'Nice one!');
   step('result reaches the leaderboard; name is remembered');
 
   // Replay after winning: board resets, but the first result is the one that counts.
@@ -196,6 +212,7 @@ window.supabase = { createClient: function () {
   assert.equal(await a.isVisible('#replay-btn'), false);
   await play(a, longer.slice(1, 3));
   await a.reload();
+  await pick(a, 'daily');
   assert.equal(await a.locator('#board .row:not(.current)').count(), 3, 'replay progress survives a refresh');
   await play(a, longer.slice(3));
   await a.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
@@ -213,7 +230,7 @@ window.supabase = { createClient: function () {
 
   // --- Player 2 on an iPad: slower path, then logs in and keeps the result.
   const b = await open('iPad (gen 7)');
-  await b.fill('.field', 'Ana'); await b.click('.btn'); await b.click('.btn');
+  await join(b, 'Ana');
   await shot(b, 'ipad-board');
   await play(b, longer.slice(1));
   await b.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
@@ -232,7 +249,7 @@ window.supabase = { createClient: function () {
 
   // --- Same account on a new phone: name, solved board and stats follow.
   const c = await open('iPhone SE');
-  await c.fill('.field', 'Temp'); await c.click('.btn'); await c.click('.btn');
+  await join(c, 'Temp');
   await c.click('#account-btn');
   await shot(c, 'se-account');
   await c.click('.btn.google');
@@ -250,6 +267,7 @@ window.supabase = { createClient: function () {
   await c.click('#modal-close'); await c.click('#replay-btn');
   await play(c, best.slice(1, 2));
   await c.reload();
+  await pick(c, 'daily');
   await c.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
   await c.waitForTimeout(400);
   assert.equal(await c.locator('#board .row:not(.current)').count(), 2, 'a logged-in replay is not overwritten by the saved result');
@@ -292,7 +310,52 @@ window.supabase = { createClient: function () {
   // --- No keys pasted yet: the game still works offline.
   server.offline = true;
   const d = await open('iPhone 13');
-  await d.fill('.field', 'Solo'); await d.click('.btn'); await d.click('.btn');
+  await join(d, 'Solo', 'unlimited');
+
+  // --- Unlimited mode: random words, one after another, separate from the daily puzzle.
+  const sub = () => d.textContent('#subtitle');
+  const solve = (start) => d.evaluate((w) => {
+    const E = JoseleEngine;
+    return E.pathToTarget(w, E.createGame(JoseleWords.VALID_WORDS, JoseleWords.START_WORDS).graph).slice(1);
+  }, start);
+  assert.match(await sub(), /^Unlimited: [A-Z]{4}$/);
+  const seen = [];
+  for (let i = 0; i < 3; i++) {
+    const start = (await sub()).split(': ')[1];
+    assert.ok(!seen.includes(start) && start !== best[0], 'a fresh word each time');
+    seen.push(start);
+    const route = await solve(start);
+    assert.ok(route.length >= 3 && route.length <= 6);
+    await play(d, route.slice(0, 1));
+    if (i === 0) {
+      await d.reload();
+      await pick(d, 'unlimited');
+      assert.equal(await sub(), 'Unlimited: ' + start, 'unlimited progress survives a refresh');
+      assert.equal(await d.locator('#board .row:not(.current)').count(), 2);
+    }
+    await play(d, route.slice(1));
+    await d.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
+    assert.match(await d.textContent('#modal-body'), new RegExp('Unlimited puzzles solved: ' + (i + 1)));
+    if (i === 0) await shot(d, 'phone-unlimited-result');
+    await d.click('.btn:text("Next puzzle")');
+    assert.equal(await d.locator('#board .row:not(.current)').count(), 1);
+  }
+  await play(d, (await solve((await sub()).split(': ')[1])).slice(0, 1));
+  await d.click('#giveup-btn');
+  const before = await sub();
+  await d.click('.btn:text("Skip to a new word")');
+  assert.notEqual(await sub(), before);
+  await d.click('[data-open="stats"]');
+  assert.deepEqual(await d.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['0', '0', '0', '0'], 'unlimited does not touch daily stats');
+  await d.click('#modal-close');
+  await shot(d, 'phone-unlimited-board');
+  await d.click('#mode-btn');
+  await pick(d, 'daily');
+  assert.match(await sub(), /^#\d+: /);
+  assert.equal(await d.locator('#board .row:not(.current)').count(), 1, 'daily puzzle is untouched');
+  await noScroll(d);
+  step('unlimited mode: new word after each win, skip, saved progress, separate from daily');
+
   await play(d, best.slice(1));
   await d.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
   await openLb(d);

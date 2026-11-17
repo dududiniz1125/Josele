@@ -66,7 +66,22 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.account-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.account-btn:hover, .mode-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.mode-btn {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  padding: 6px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.mode-btn::after { content: " ⇄"; opacity: 0.7; }
+.btn.choice { display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; border-radius: 16px; text-align: center; }
+.btn.choice b { font-size: 1.1rem; }
+.btn.choice span { font-size: 0.82rem; font-weight: 500; line-height: 1.35; opacity: 0.92; }
 .header h1 { margin: 0; font-size: clamp(1.5rem, 6vw, 2rem); font-weight: 800; letter-spacing: 0.01em; }
 .logo { display: inline-block; animation: bob 3s ease-in-out infinite; }
 .subtitle { margin: 2px 0 0; font-size: 1.05rem; font-weight: 700; letter-spacing: 0.08em; }
@@ -281,3 +296,9 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
 }
 
 .actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; }
+
+/* Small phones: keep the header pills clear of the title */
+@media (max-width: 380px) {
+  .header h1 { font-size: 1.3rem; padding-top: 30px; }
+  .mode-btn, .account-btn { padding: 5px 9px; font-size: 0.7rem; }
+}

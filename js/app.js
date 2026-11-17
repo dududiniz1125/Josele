@@ -8,6 +8,7 @@
   var STATS_KEY = 'josele-stats-v1';
   var SEEN_KEY = 'josele-seen-help';
   var NAME_KEY = 'josele-name';
+  var UNLIMITED_KEY = 'josele-unlimited-v1';
   var WORD_LEN = 4;
   var SITE_URL = (window.JOSELE_CONFIG && window.JOSELE_CONFIG.SITE_URL) || (location.origin + location.pathname);
 
@@ -16,8 +17,12 @@
   var Online = window.JoseleOnline;
   var game = E.createGame(window.JoseleWords.VALID_WORDS, window.JoseleWords.START_WORDS);
 
-  var puzzle;            // today's puzzle
-  var state;             // { date, rows: [start, ...guesses], done }
+  // Two games live side by side: the daily puzzle and the unlimited one.
+  var mode = 'daily';
+  var daily = { puzzle: null, state: null };
+  var unlimited = { puzzle: null, state: null, solved: 0, recent: [] };
+  var puzzle;            // the puzzle on screen (daily or unlimited)
+  var state;             // its progress: { date, rows: [start, ...guesses], done }
   var input = '';        // letters typed in the current row
   var busy = false;      // true while the win sequence plays
   var modalLocked = false;
@@ -72,12 +77,26 @@
   }
 
   // Saved rows are only trusted if they still form a legal ladder for today's puzzle.
-  function validSavedRows(rows) {
-    if (!Array.isArray(rows) || rows[0] !== puzzle.start) return false;
+  function validSavedRows(rows, start) {
+    if (!Array.isArray(rows) || rows[0] !== start) return false;
     for (var i = 1; i < rows.length; i++) {
       if (!game.checkGuess(rows[i], rows.slice(0, i)).ok) return false;
     }
     return true;
+  }
+
+  // Saves the game on screen under the right key and keeps its slot up to date.
+  function persist() {
+    if (mode === 'daily') {
+      daily.state = state;
+      save(STATE_KEY, state);
+    } else {
+      unlimited.state = state;
+      save(UNLIMITED_KEY, {
+        start: unlimited.puzzle.start, rows: state.rows,
+        solved: unlimited.solved, recent: unlimited.recent
+      });
+    }
   }
 
   /* ---------- rendering ---------- */
@@ -180,12 +199,13 @@
     input = '';
     if (state.rows[state.rows.length - 1] === E.TARGET) {
       state.done = true;
-      recordWin();
+      if (mode === 'daily') recordWin();
+      else unlimited.solved++;
     }
-    save(STATE_KEY, state);
+    persist();
     renderBoard(true);
     if (state.done) {
-      Online.sync(); // sends the result to the leaderboard
+      if (mode === 'daily') Online.sync(); // sends the result to the leaderboard
       celebrate();
     }
   }
@@ -202,6 +222,7 @@
   function replay() {
     if (!state.done || busy) return;
     if (!backdropEl.hidden) closeModal();
+    if (mode === 'unlimited') return nextUnlimited();
     resetBoard(true);
     toast('Playing again, just for fun');
   }
@@ -209,8 +230,72 @@
   function resetBoard(isReplay) {
     state = { date: puzzle.date, rows: [puzzle.start], done: false, replay: isReplay };
     input = '';
-    save(STATE_KEY, state);
+    persist();
     renderBoard(false);
+  }
+
+  /* ---------- unlimited mode ---------- */
+
+  function unlimitedPuzzle(start) {
+    var path = E.pathToTarget(start, game.graph);
+    return { date: null, number: null, start: start, target: E.TARGET, optimal: path.length - 1, path: path };
+  }
+
+  // A random start word, avoiding today's daily word and the last few played.
+  function pickUnlimitedStart() {
+    var avoid = unlimited.recent.concat(daily.puzzle ? [daily.puzzle.start] : []);
+    var pool = game.starts.filter(function (w) { return avoid.indexOf(w) === -1; });
+    if (!pool.length) pool = game.starts;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function newUnlimited() {
+    var start = pickUnlimitedStart();
+    unlimited.recent = unlimited.recent.concat(start).slice(-40);
+    unlimited.puzzle = unlimitedPuzzle(start);
+    unlimited.state = { date: null, rows: [start], done: false };
+  }
+
+  function loadUnlimited() {
+    var saved = load(UNLIMITED_KEY, null);
+    unlimited.solved = (saved && saved.solved) || 0;
+    unlimited.recent = saved && Array.isArray(saved.recent) ? saved.recent.slice(-40) : [];
+    if (saved && game.starts.indexOf(saved.start) !== -1 && validSavedRows(saved.rows, saved.start)) {
+      unlimited.puzzle = unlimitedPuzzle(saved.start);
+      unlimited.state = { date: null, rows: saved.rows, done: saved.rows[saved.rows.length - 1] === E.TARGET };
+    } else {
+      newUnlimited();
+    }
+  }
+
+  function nextUnlimited() {
+    if (busy) return;
+    if (!backdropEl.hidden) closeModal();
+    newUnlimited();
+    show('unlimited');
+    persist();
+  }
+
+  // Puts one of the two games on screen.
+  function show(which) {
+    mode = which;
+    var slot = which === 'daily' ? daily : unlimited;
+    puzzle = slot.puzzle;
+    state = slot.state;
+    input = '';
+    $('subtitle').textContent = (which === 'daily' ? '#' + puzzle.number : 'Unlimited') + ': ' + puzzle.start;
+    $('mode-btn').textContent = which === 'daily' ? 'Daily' : 'Unlimited';
+    $('replay-btn').textContent = which === 'daily' ? 'Play again' : 'Next puzzle';
+    renderBoard(false);
+  }
+
+  function chooseMode(which) {
+    modalLocked = false;
+    backdropEl.hidden = true;
+    openName = null;
+    show(which);
+    if (!load(SEEN_KEY, null)) openModal('help');
+    else if (state.done) openModal('result');
   }
 
   function buildKeyboard() {
@@ -249,7 +334,7 @@
 
   function recordWin() {
     var stats = loadStats();
-    if (stats.lastDate === puzzle.date) return; // already counted today
+    if (state.replay || stats.lastDate === puzzle.date) return; // already counted today
     var over = Math.max(0, state.rows.length - 1 - puzzle.optimal);
     stats.played++;
     stats.streak = stats.lastDate === E.shiftDateKey(puzzle.date, -1) ? stats.streak + 1 : 1;
@@ -287,7 +372,8 @@
     var lines = state.rows.slice(1).map(function (w) {
       return matches(w).map(function (m) { return m ? '🟩' : '⬛'; }).join('');
     });
-    return GAME_NAME + ' #' + puzzle.number + ' — ' + steps + ' step' + (steps === 1 ? '' : 's') +
+    var title = mode === 'daily' ? GAME_NAME + ' #' + puzzle.number : GAME_NAME + ' Unlimited (' + puzzle.start + ')';
+    return title + ' — ' + steps + ' step' + (steps === 1 ? '' : 's') +
       ' (best: ' + puzzle.optimal + ')\n' + lines.join('\n') + '\n' + SITE_URL;
   }
 
@@ -351,7 +437,7 @@
     backdropEl.hidden = true;
     openName = null;
     Online.sync();
-    if (!load(SEEN_KEY, null)) openModal('help');
+    openModal('mode');
   }
 
   function loginSection(body) {
@@ -560,6 +646,21 @@
       return 'Stats';
     },
 
+    mode: function (body) {
+      var list = el('div', 'form');
+      [['daily', 'Daily puzzle', 'One word a day, the same for everyone. Counts for your streak and the leaderboard.'],
+        ['unlimited', 'Unlimited', 'A new random word every time. Finish one and go straight to the next.']]
+        .forEach(function (m) {
+          var b = button('btn choice' + (m[0] === 'daily' ? '' : ' secondary'), '', function () { chooseMode(m[0]); });
+          b.dataset.mode = m[0];
+          b.appendChild(el('b', '', m[1]));
+          b.appendChild(el('span', '', m[2]));
+          list.appendChild(b);
+        });
+      body.appendChild(list);
+      return 'What do you want to play?';
+    },
+
     giveup: function (body) {
       body.appendChild(el('p', '', 'This clears your steps and takes you back to ' + puzzle.start + ' so you can try again.'));
       var actions = el('div', 'actions');
@@ -567,6 +668,7 @@
         closeModal();
         giveUp();
       }));
+      if (mode === 'unlimited') actions.appendChild(button('btn secondary', 'Skip to a new word', nextUnlimited));
       actions.appendChild(button('btn secondary', 'No, keep playing', closeModal));
       body.appendChild(actions);
       return 'Want to give up?';
@@ -591,17 +693,26 @@
       body.appendChild(p);
       if (steps === puzzle.optimal) body.appendChild(el('p', '', 'Perfect — that\'s an optimal path! 😎'));
 
-      // Only the player's own path: the best route stays secret until tomorrow.
+      // Only the player's own path: the best route stays secret.
       body.appendChild(el('h3', '', 'Your path'));
       body.appendChild(mini(state.rows));
 
       var actions = el('div', 'actions');
-      actions.appendChild(button('btn', 'Share', function () {
+      var share = function () {
         copy(shareText()).then(
           function () { toast('Copied to clipboard!'); },
           function () { toast('Could not copy'); }
         );
-      }));
+      };
+      if (mode === 'unlimited') {
+        actions.appendChild(button('btn', 'Next puzzle', nextUnlimited));
+        actions.appendChild(button('btn secondary', 'Share', share));
+        body.appendChild(actions);
+        body.appendChild(el('p', 'small', 'Unlimited puzzles solved: ' + unlimited.solved +
+          '. Unlimited games do not count for the leaderboard.'));
+        return 'Nice one!';
+      }
+      actions.appendChild(button('btn', 'Share', share));
       actions.appendChild(button('btn secondary', 'Play again', replay));
       if (Online.enabled) {
         actions.appendChild(button('btn secondary', 'Leaderboard', function () { lbTab = 'today'; openModal('leaderboard'); }));
@@ -642,13 +753,13 @@
         optimal: profile.optimal, dist: profile.dist, lastDate: profile.last_solved
       });
       // Already solved today on another device: show that board instead of a fresh one.
-      if (!state.done && !state.replay && !busy && profile.today === puzzle.date && Array.isArray(profile.today_path)) {
-        var saved = { date: puzzle.date, rows: profile.today_path, done: true };
-        if (validSavedRows(saved.rows)) {
-          state = saved;
-          input = '';
-          save(STATE_KEY, state);
-          renderBoard(false);
+      var d = daily.state;
+      if (!d.done && !d.replay && !busy && profile.today === daily.puzzle.date && Array.isArray(profile.today_path)) {
+        var saved = { date: daily.puzzle.date, rows: profile.today_path, done: true };
+        if (validSavedRows(saved.rows, daily.puzzle.start)) {
+          daily.state = saved;
+          save(STATE_KEY, saved);
+          if (mode === 'daily' && puzzle) show('daily');
         }
       }
       if (openName === 'stats') openModal('stats');
@@ -668,32 +779,33 @@
 
   /* ---------- lifecycle ---------- */
 
-  function startDay() {
-    puzzle = game.today();
+  function loadDaily() {
+    daily.puzzle = game.today();
     var saved = load(STATE_KEY, null);
-    if (saved && saved.date === puzzle.date && validSavedRows(saved.rows)) {
-      state = { date: puzzle.date, rows: saved.rows, done: saved.rows[saved.rows.length - 1] === E.TARGET, replay: !!saved.replay };
+    if (saved && saved.date === daily.puzzle.date && validSavedRows(saved.rows, daily.puzzle.start)) {
+      daily.state = { date: saved.date, rows: saved.rows, done: saved.rows[saved.rows.length - 1] === E.TARGET, replay: !!saved.replay };
     } else {
-      state = { date: puzzle.date, rows: [puzzle.start], done: false };
-      save(STATE_KEY, state);
+      daily.state = { date: daily.puzzle.date, rows: [daily.puzzle.start], done: false };
+      save(STATE_KEY, daily.state);
     }
-    input = '';
-    $('subtitle').textContent = '#' + puzzle.number + ': ' + puzzle.start;
-    renderBoard(false);
   }
 
-  // Roll over to the new puzzle when the Sao Paulo date changes.
+  // Roll over to the new daily puzzle when the Sao Paulo date changes.
   function checkDate() {
-    if (!busy && E.dateKey() !== puzzle.date) {
+    if (busy || E.dateKey() === daily.puzzle.date) return;
+    loadDaily();
+    if (mode === 'daily') {
       if (!modalLocked) { backdropEl.hidden = true; openName = null; }
-      startDay();
-      toast('New puzzle!');
-      Online.sync();
+      show('daily');
     }
+    toast('New daily puzzle!');
+    Online.sync();
   }
 
   buildKeyboard();
-  startDay();
+  loadDaily();
+  loadUnlimited();
+  show('daily');
   renderAccountButton();
   reportAuthError();
 
@@ -709,13 +821,12 @@
   setInterval(checkDate, 20000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkDate(); });
 
-  if (!getName()) openModal('name');
-  else if (state.done) openModal('result');
-  else if (!load(SEEN_KEY, null)) openModal('help');
+  // Every visit starts by asking what to play (and, the first time, for a name).
+  openModal(getName() ? 'mode' : 'name');
 
   Online.init({
     getName: getName,
-    getGame: function () { return { day: state.date, rows: state.rows, done: state.done }; },
+    getGame: function () { return { day: daily.state.date, rows: daily.state.rows, done: daily.state.done }; },
     onProfile: onProfile,
     onError: toast
   });
