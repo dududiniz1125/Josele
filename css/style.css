@@ -134,6 +134,7 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
 .link:hover { color: var(--ink); }
 .link[hidden] { display: none; }
 .link.giveup { color: #ff9d9d; font-weight: 700; }
+.link.replay { color: #5fd583; font-weight: 700; }
 
 /* Toast */
 .toast {

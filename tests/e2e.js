@@ -190,6 +190,27 @@ window.supabase = { createClient: function () {
   assert.equal(await a.textContent('#modal-title'), 'Nice one!', 'name is not asked again');
   step('result reaches the leaderboard; name is remembered');
 
+  // Replay after winning: board resets, but the first result is the one that counts.
+  await a.click('.btn:text("Play again")');
+  assert.equal(await a.locator('#board .row:not(.current)').count(), 1);
+  assert.equal(await a.isVisible('#replay-btn'), false);
+  await play(a, longer.slice(1, 3));
+  await a.reload();
+  assert.equal(await a.locator('#board .row:not(.current)').count(), 3, 'replay progress survives a refresh');
+  await play(a, longer.slice(3));
+  await a.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
+  assert.match(await a.textContent('#modal-body'), /This was a replay/);
+  await shot(a, 'phone-replay-result');
+  await openLb(a);
+  assert.deepEqual(await lbRows(a), [`[me] 1|Dudu (you)|${best.length - 1}|⭐`], 'leaderboard keeps the first result');
+  await a.click('#modal-close'); await a.click('[data-open="stats"]');
+  assert.deepEqual(await a.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['1', '1', '1', '1'], 'stats count the day once');
+  await a.click('#modal-close');
+  assert.equal(await a.isVisible('#replay-btn'), true);
+  await a.click('#replay-btn');
+  assert.equal(await a.locator('#board .row:not(.current)').count(), 1);
+  step('players can replay after winning; stats and leaderboard keep the first result');
+
   // --- Player 2 on an iPad: slower path, then logs in and keeps the result.
   const b = await open('iPad (gen 7)');
   await b.fill('.field', 'Ana'); await b.click('.btn'); await b.click('.btn');
@@ -226,6 +247,13 @@ window.supabase = { createClient: function () {
   await shot(c, 'se-streaks');
   await noScroll(c);
   step('logging in on another device restores name, today\'s board, stats and streak');
+  await c.click('#modal-close'); await c.click('#replay-btn');
+  await play(c, best.slice(1, 2));
+  await c.reload();
+  await c.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
+  await c.waitForTimeout(400);
+  assert.equal(await c.locator('#board .row:not(.current)').count(), 2, 'a logged-in replay is not overwritten by the saved result');
+  step('a logged-in player can replay too');
 
   // --- A cheater calling the API directly from the browser console.
   const forged = await a.evaluate(async (start) => {

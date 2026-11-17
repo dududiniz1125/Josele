@@ -116,6 +116,7 @@
     keyboardEl.classList.toggle('done', state.done);
     // Giving up only makes sense once there is something to undo.
     $('giveup-btn').hidden = state.done || state.rows.length < 2;
+    $('replay-btn').hidden = !state.done;
     wrapEl.scrollTop = wrapEl.scrollHeight;
   }
 
@@ -192,11 +193,24 @@
   // Back to the start word. Nothing is recorded, so the player can try as often as they like.
   function giveUp() {
     if (state.done || busy) return;
-    state = { date: puzzle.date, rows: [puzzle.start], done: false };
+    resetBoard(!!state.replay);
+    toast('Back to ' + puzzle.start + '. Try again!');
+  }
+
+  // Play today's puzzle again after winning. The first result of the day is the
+  // one that counts for stats and the leaderboard; replays are just for fun.
+  function replay() {
+    if (!state.done || busy) return;
+    if (!backdropEl.hidden) closeModal();
+    resetBoard(true);
+    toast('Playing again, just for fun');
+  }
+
+  function resetBoard(isReplay) {
+    state = { date: puzzle.date, rows: [puzzle.start], done: false, replay: isReplay };
     input = '';
     save(STATE_KEY, state);
     renderBoard(false);
-    toast('Back to ' + puzzle.start + '. Try again!');
   }
 
   function buildKeyboard() {
@@ -588,10 +602,12 @@
           function () { toast('Could not copy'); }
         );
       }));
+      actions.appendChild(button('btn secondary', 'Play again', replay));
       if (Online.enabled) {
         actions.appendChild(button('btn secondary', 'Leaderboard', function () { lbTab = 'today'; openModal('leaderboard'); }));
       }
       body.appendChild(actions);
+      if (state.replay) body.appendChild(el('p', 'small', 'This was a replay. Your first result today is the one that counts for stats and the leaderboard.'));
       body.appendChild(el('p', 'small', 'Next puzzle at midnight, Brasília time.'));
       return 'Nice one!';
     }
@@ -626,7 +642,7 @@
         optimal: profile.optimal, dist: profile.dist, lastDate: profile.last_solved
       });
       // Already solved today on another device: show that board instead of a fresh one.
-      if (!state.done && !busy && profile.today === puzzle.date && Array.isArray(profile.today_path)) {
+      if (!state.done && !state.replay && !busy && profile.today === puzzle.date && Array.isArray(profile.today_path)) {
         var saved = { date: puzzle.date, rows: profile.today_path, done: true };
         if (validSavedRows(saved.rows)) {
           state = saved;
@@ -656,7 +672,7 @@
     puzzle = game.today();
     var saved = load(STATE_KEY, null);
     if (saved && saved.date === puzzle.date && validSavedRows(saved.rows)) {
-      state = { date: puzzle.date, rows: saved.rows, done: saved.rows[saved.rows.length - 1] === E.TARGET };
+      state = { date: puzzle.date, rows: saved.rows, done: saved.rows[saved.rows.length - 1] === E.TARGET, replay: !!saved.replay };
     } else {
       state = { date: puzzle.date, rows: [puzzle.start], done: false };
       save(STATE_KEY, state);
@@ -687,6 +703,7 @@
     b.blur();
     openModal(b.dataset.open);
   });
+  $('replay-btn').addEventListener('click', replay);
   $('modal-close').addEventListener('click', closeModal);
   backdropEl.addEventListener('click', function (ev) { if (ev.target === backdropEl) closeModal(); });
   setInterval(checkDate, 20000);
