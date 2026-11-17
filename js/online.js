@@ -111,6 +111,19 @@
     return rpc('set_name', { p_name: name });
   }
 
+  // Which login methods the Supabase project has switched on: { google, email }.
+  var providersPromise = null;
+  function providers() {
+    if (!enabled) return Promise.resolve({ google: false, email: false });
+    if (!providersPromise) {
+      providersPromise = fetch(cfg.SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: cfg.SUPABASE_ANON_KEY } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { var e = d.external || {}; return { google: !!e.google, email: !!e.email }; })
+        .catch(function () { providersPromise = null; return { google: true, email: true }; });
+    }
+    return providersPromise;
+  }
+
   function leaderboard(kind) {
     return rpc(kind === 'streaks' ? 'leaderboard_streaks' : 'leaderboard_today');
   }
@@ -122,6 +135,7 @@
     user: function () { return user; },
     setName: setName,
     leaderboard: leaderboard,
+    providers: providers,
     loginGoogle: loginGoogle,
     loginEmail: loginEmail,
     logout: logout

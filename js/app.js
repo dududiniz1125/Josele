@@ -454,6 +454,13 @@
     var wrap = el('div', 'form');
     wrap.appendChild(google);
     body.appendChild(wrap);
+    // Only offer the login methods that are switched on in Supabase.
+    google.hidden = true;
+    Online.providers().then(function (p) {
+      google.hidden = !p.google;
+      form.hidden = !p.email;
+      if (!p.google && !p.email) status.textContent = 'Log in is not available yet.';
+    });
 
     var form = el('form', 'form-row');
     form.style.marginTop = '10px';

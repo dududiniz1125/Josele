@@ -80,6 +80,7 @@ window.supabase = { createClient: function () {
         json(r.rows[0]);
       });
     }
+    if (url.pathname === '/auth/v1/settings') return json({ external: { google: true, email: true } });
     if (url.pathname === '/__rpc') {
       let body = '';
       for await (const c of req) body += c;
@@ -89,7 +90,7 @@ window.supabase = { createClient: function () {
     if (url.pathname === '/js/config.js' && !url.searchParams.has('real')) {
       res.setHeader('content-type', TYPES['.js']);
       return res.end(server.offline ? "window.JOSELE_CONFIG = {SITE_URL:'https://josele.io',SUPABASE_URL:'',SUPABASE_ANON_KEY:''};"
-        : "window.JOSELE_CONFIG = {SITE_URL:'https://josele.io',SUPABASE_URL:'http://fake',SUPABASE_ANON_KEY:'fake'};");
+        : "window.JOSELE_CONFIG = {SITE_URL:'https://josele.io',SUPABASE_URL:location.origin,SUPABASE_ANON_KEY:'fake'};");
     }
     const file = path.join(ROOT, url.pathname === '/' ? 'index.html' : url.pathname);
     if (!file.startsWith(ROOT) || !fs.existsSync(file)) { res.statusCode = 404; return res.end(); }

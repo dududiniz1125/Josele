@@ -302,3 +302,5 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
   .header h1 { font-size: 1.3rem; padding-top: 30px; }
   .mode-btn, .account-btn { padding: 5px 9px; font-size: 0.7rem; }
 }
+
+.btn[hidden], .form-row[hidden] { display: none; }
