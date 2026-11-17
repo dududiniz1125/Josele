@@ -86,7 +86,7 @@ test('checkGuess returns the right message for each kind of bad guess', () => {
 });
 
 test('player names: 15 characters, letters/numbers/spaces, no offensive words', () => {
-  for (const ok of ['José', 'João Pedro', 'Dudu 10', 'Cassio', 'Paulo', 'a', 'x'.repeat(15)]) {
+  for (const ok of ['José', 'João Pedro', 'Mari 10', 'Cassio', 'Paulo', 'a', 'x'.repeat(15)]) {
     assert.equal(N.validate(ok).ok, true, ok);
   }
   assert.equal(N.validate('  Ana   Maria ').name, 'Ana Maria');

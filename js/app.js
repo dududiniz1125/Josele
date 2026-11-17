@@ -491,7 +491,7 @@
       holder.textContent = '';
       var creating = accountTab === 'create';
       var form = el('form', 'form');
-      var name = input_('text', 'Your name (e.g. Eduardo Diniz)', 'name', Names.MAX_LENGTH);
+      var name = input_('text', 'Your name', 'name', Names.MAX_LENGTH);
       name.autocapitalize = 'words';
       name.value = getName();
       var username = input_('text', 'Username', 'username', Names.MAX_LENGTH);

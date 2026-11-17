@@ -63,7 +63,7 @@ That is everything. Names, guest play, accounts and both leaderboards work from 
 
 Nothing to switch on. Accounts are handled by the database script from step 2, so there is no Google or email set-up.
 
-- A player creates an account with a name, a username and a password. Usernames are unique whatever the capitals (`dudu`, `Dudu` and `DUDU` are the same username).
+- A player creates an account with a name, a username and a password. Usernames are unique whatever the capitals (`mari`, `Mari` and `MARI` are the same username).
 - Passwords are never stored. Only a bcrypt hash is kept, in a table the browser cannot read.
 - After 8 wrong passwords for a username, that username is locked for 10 minutes.
 - There is no email, so a player cannot reset a forgotten password by themselves. You can set a new one for them in the SQL Editor:

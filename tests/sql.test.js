@@ -118,8 +118,8 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
   });
 
   await test('name and username rules match the browser', async () => {
-    const names = ['José', '  João   Pedro ', 'Cassio', 'Paulo', 'Dudu 10', 'a', 'sh1t', 'f u c k',
-      'Puta', 'PORRA', 'cu', 'x'.repeat(16), 'hi!', '', '<b>', 'Ünïcode', 'filho da puta', 'Merdão', 'Eduardo Diniz'];
+    const names = ['José', '  João   Pedro ', 'Cassio', 'Paulo', 'Mari 10', 'a', 'sh1t', 'f u c k',
+      'Puta', 'PORRA', 'cu', 'x'.repeat(16), 'hi!', '', '<b>', 'Ünïcode', 'filho da puta', 'Merdão', 'Maria Souza'];
     const check = async (fn, local, s) => {
       let server;
       try { server = { ok: true, value: (await db.query(`select ${fn}($1) v`, [s])).rows[0].v }; }
@@ -128,7 +128,7 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
       if (local.ok) assert.equal(server.value, local.name || local.username);
     };
     for (const s of names) await check('josele_clean_name', N.validate(s), s);
-    const usernames = ['dudu', 'Dudu_10', 'ab', 'x'.repeat(16), 'has space', 'josé', 'a-b', 'sh1t', 'big_puta', 'f_u_c_k', ' edu ', '', 'abc'];
+    const usernames = ['mari', 'Mari_10', 'ab', 'x'.repeat(16), 'has space', 'josé', 'a-b', 'sh1t', 'big_puta', 'f_u_c_k', ' edu ', '', 'abc'];
     for (const s of usernames) await check('josele_clean_username', N.validateUsername(s), s);
   });
 
@@ -280,8 +280,8 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
     await rejects(signUp(alice, 'Alice', 'sh1thead', 'secret1'), /another username/);
     await rejects(signUp(alice, 'Alice', 'alice', '12345'), /at least 6 characters/);
     await rejects(signUp(alice, 'sh1t', 'alice', 'secret1'), /another name/);
-    const prof = await signUp(alice, 'Alice Diniz', 'Alice', 'secret1');
-    assert.equal(prof.name, 'Alice Diniz');
+    const prof = await signUp(alice, 'Alice Souza', 'Alice', 'secret1');
+    assert.equal(prof.name, 'Alice Souza');
     assert.equal(prof.username, 'Alice');
     assert.equal(prof.guest, false);
     assert.equal(prof.played, 4, 'results stay with the new account');
@@ -309,7 +309,7 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
     assert.equal(await playerOf(phone), undefined);
     const prof = await logIn(phone, 'ALICE', 'secret1');   // username is case-insensitive, password is not
     assert.equal(prof.username, 'Alice');
-    assert.equal(prof.name, 'Alice Diniz');
+    assert.equal(prof.name, 'Alice Souza');
     assert.equal(prof.played, 4);
     assert.deepEqual(prof.today_path, puzzle.path);
     assert.equal(await playerOf(phone), await playerOf(alice));
@@ -317,7 +317,7 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
     // Both devices are the same player: still one result per day, one leaderboard row.
     const again = await submit(phone, today, longerPath());
     assert.equal(again.steps, puzzle.optimal);
-    assert.equal((await call(phone, 'leaderboard_today')).rows.filter((r) => r.name === 'Alice Diniz').length, 1);
+    assert.equal((await call(phone, 'leaderboard_today')).rows.filter((r) => r.name === 'Alice Souza').length, 1);
   });
 
   await test('guest progress on a device is moved into the account at log-in', async () => {
@@ -330,7 +330,7 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
     assert.equal((await db.query('select count(*)::int c from players where id = $1', [davePlayer])).rows[0].c, 0, 'guest row is gone');
     const viaCarol = await logIn(carol, 'Bob_2', 'hunter22');
     assert.equal(viaCarol.played, before + 2, "a clashing day keeps the account's own result");
-    assert.deepEqual((await call(carol, 'leaderboard_today')).rows.map((r) => r.name), ['Alice Diniz', 'Bob']);
+    assert.deepEqual((await call(carol, 'leaderboard_today')).rows.map((r) => r.name), ['Alice Souza', 'Bob']);
     // Logging in as someone else from an account's device never merges or deletes accounts.
     const players = (await db.query('select count(*)::int c from players')).rows[0].c;
     const swapped = await logIn(carol, 'alice', 'secret1');

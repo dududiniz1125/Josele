@@ -150,10 +150,10 @@ window.supabase = { createClient: function () {
   assert.equal(await a.textContent('#modal-title'), "What's your name?");
   await a.fill('.field', 'sh1t'); await a.click('.btn');
   assert.equal(await a.textContent('.error'), 'Please pick another name');
-  await a.fill('.field', 'Dudu!'); await a.click('.btn');
+  await a.fill('.field', 'Mari!'); await a.click('.btn');
   assert.equal(await a.textContent('.error'), 'Letters, numbers and spaces only');
   assert.equal(await a.getAttribute('.field', 'maxlength'), '15');
-  await a.fill('.field', 'Dudu'); await a.click('.btn');
+  await a.fill('.field', 'Mari'); await a.click('.btn');
   await a.waitForSelector('#modal-title:text("How to play")');
   assert.equal(await a.isVisible('#home'), false);
   await a.click('.btn');
@@ -189,7 +189,7 @@ window.supabase = { createClient: function () {
   const grid = best.slice(1).map((w) => expectMatch(w).map((m) => (m ? '🟩' : '⬛')).join(''));
   assert.equal(shared, `Josele #${await a.evaluate(() => JoseleEngine.puzzleNumber(JoseleEngine.dateKey()))} — ${best.length - 1} steps (best: ${best.length - 1})\n${grid.join('\n')}\nhttps://josele.io`);
   await openLb(a);
-  assert.deepEqual(await lbRows(a), [`[me] 1|Dudu (you)|${best.length - 1}|⭐`]);
+  assert.deepEqual(await lbRows(a), [`[me] 1|Mari (you)|${best.length - 1}|⭐`]);
   step('give up, green tiles, share text and leaderboard still work');
 
   // Replay after winning keeps the first result.
@@ -198,7 +198,7 @@ window.supabase = { createClient: function () {
   await a.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
   assert.match(await a.textContent('#modal-body'), /This was a replay/);
   await openLb(a);
-  assert.deepEqual(await lbRows(a), [`[me] 1|Dudu (you)|${best.length - 1}|⭐`]);
+  assert.deepEqual(await lbRows(a), [`[me] 1|Mari (you)|${best.length - 1}|⭐`]);
   step('replay keeps the first result');
 
   // --- Create an account from the home screen: name, username, password.
@@ -209,25 +209,25 @@ window.supabase = { createClient: function () {
   await a.waitForTimeout(250);
   await shot(a, 'phone-create-account');
   const fields = (p) => p.locator('.modal .form .field');
-  await fields(a).nth(0).fill('Eduardo Diniz');
+  await fields(a).nth(0).fill('Maria Souza');
   await fields(a).nth(1).fill('du'); await fields(a).nth(2).fill('segredo1');
   await a.click('.modal .form .btn');
   assert.match(await a.textContent('.modal .error'), /3 to 15 characters/);
-  await fields(a).nth(1).fill('Dudu'); await fields(a).nth(2).fill('123');
+  await fields(a).nth(1).fill('Mari'); await fields(a).nth(2).fill('123');
   await a.click('.modal .form .btn');
   assert.match(await a.textContent('.modal .error'), /at least 6 characters/);
   await fields(a).nth(2).fill('segredo1');
   await a.click('.modal .form .btn');
-  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
-  assert.equal(await account(a), '👤 Eduardo Diniz · @Dudu · 🔥 1');
+  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Mari'));
+  assert.equal(await account(a), '👤 Maria Souza · @Mari · 🔥 1');
   assert.equal(await a.textContent('#modal-title'), 'Your account');
   assert.deepEqual(await a.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['1', '1', '1', '1']);
   await a.waitForTimeout(250);
   await shot(a, 'phone-account');
   await openLb(a);
-  assert.deepEqual(await lbRows(a), [`[me] 1|Eduardo Diniz (you)|${best.length - 1}|⭐`], 'guest result now belongs to the account');
+  assert.deepEqual(await lbRows(a), [`[me] 1|Maria Souza (you)|${best.length - 1}|⭐`], 'guest result now belongs to the account');
   await a.reload();
-  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
+  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Mari'));
   step('creating an account keeps the result and the browser stays logged in after a refresh');
 
   // --- Player 2 on an iPad: usernames are unique whatever the capitals.
@@ -239,12 +239,12 @@ window.supabase = { createClient: function () {
   await play(b, longer.slice(1));
   await b.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
   await openLb(b);
-  assert.deepEqual(await lbRows(b), [`1|Eduardo Diniz|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`]);
+  assert.deepEqual(await lbRows(b), [`1|Maria Souza|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`]);
   await shot(b, 'ipad-leaderboard');
   await noScroll(b);
   await b.click('#modal-close'); await b.click('#account-btn');
   await b.click('.tab:text("Create account")');
-  for (const taken of ['dudu', 'DUDU', 'Dudu']) {
+  for (const taken of ['mari', 'MARI', 'Mari']) {
     await fields(b).nth(1).fill(taken); await fields(b).nth(2).fill('outrasenha');
     await b.click('.modal .form .btn');
     await b.waitForFunction(() => /taken/.test(document.querySelector('.modal .error').textContent));
@@ -252,7 +252,7 @@ window.supabase = { createClient: function () {
   await fields(b).nth(1).fill('ana_b');
   await b.click('.modal .form .btn');
   await b.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
-  step('a username can only exist once (dudu = Dudu = DUDU)');
+  step('a username can only exist once (mari = Mari = MARI)');
 
   // --- Logging in on a new phone with username + password.
   const c = await open('iPhone SE');
@@ -260,14 +260,14 @@ window.supabase = { createClient: function () {
   assert.equal(await c.textContent('#modal-title'), 'Account');
   await c.waitForTimeout(250);
   await shot(c, 'se-login');
-  await fields(c).nth(0).fill('dudu'); await fields(c).nth(1).fill('errada');
+  await fields(c).nth(0).fill('mari'); await fields(c).nth(1).fill('errada');
   await c.click('.modal .form .btn');
   await c.waitForFunction(() => /Wrong username or password/.test(document.querySelector('.modal .error').textContent));
   assert.equal(await account(c), 'Log in / Create account');
-  await fields(c).nth(0).fill('DUDU'); await fields(c).nth(1).fill('segredo1');
+  await fields(c).nth(0).fill('MARI'); await fields(c).nth(1).fill('segredo1');
   await c.click('.modal .form .btn');
-  await c.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
-  assert.equal(await account(c), '👤 Eduardo Diniz · @Dudu · 🔥 1');
+  await c.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Mari'));
+  assert.equal(await account(c), '👤 Maria Souza · @Mari · 🔥 1');
   await c.click('#modal-close');
   await noScroll(c);
   await c.click('#home-daily');
@@ -278,7 +278,7 @@ window.supabase = { createClient: function () {
   await c.click('[data-open="stats"]');
   assert.deepEqual(await c.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['1', '1', '1', '1']);
   await openLb(c, 'Streaks');
-  assert.deepEqual(await lbRows(c), ['1|Ana|🔥 1|1', '[me] 2|Eduardo Diniz (you)|🔥 1|1']);
+  assert.deepEqual(await lbRows(c), ['1|Ana|🔥 1|1', '[me] 2|Maria Souza (you)|🔥 1|1']);
   await shot(c, 'se-streaks');
   await noScroll(c);
   step('log in with username and password on another device: name, board, stats and streak follow');
@@ -295,7 +295,7 @@ window.supabase = { createClient: function () {
   await e.click('.modal .form .btn');
   await e.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
   await openLb(e);
-  assert.deepEqual(await lbRows(e), [`1|Eduardo Diniz|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`], 'no duplicate guest row');
+  assert.deepEqual(await lbRows(e), [`1|Maria Souza|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`], 'no duplicate guest row');
   step('a guest who logs in later is merged into the account');
 
   // --- A cheater calling the API directly from the browser console.
@@ -330,7 +330,7 @@ window.supabase = { createClient: function () {
   await c.click('#home-daily');
   assert.equal(await c.locator('#board .row').count(), 2, 'fresh board after log out');
   await a.reload();
-  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
+  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Mari'));
   step('log out works and does not affect the other device');
 
   // --- No keys pasted yet: the game still works offline.

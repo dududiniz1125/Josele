@@ -17,7 +17,13 @@
 
   async function rpc(fn, args) {
     var r = await client.rpc(fn, args || {});
-    if (r.error) throw new Error(r.error.message || 'Request failed');
+    if (r.error) {
+      // The database has not been updated to match this version of the game yet.
+      if (r.error.code === 'PGRST202' || /Could not find the function/.test(r.error.message || '')) {
+        throw new Error('This is not switched on yet. Please try again later.');
+      }
+      throw new Error(r.error.message || 'Request failed');
+    }
     return r.data;
   }
 

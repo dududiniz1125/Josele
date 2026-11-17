@@ -57,7 +57,7 @@
     return { ok: true, name: name };
   }
 
-  // Account usernames: no spaces, and "Dudu" and "dudu" count as the same one.
+  // Account usernames: no spaces, and "Mari" and "mari" count as the same one.
   var USERNAME_MIN = 3;
   var USERNAME_ALLOWED = '^[A-Za-z0-9_]+$';
   var PASSWORD_MIN = 6;
