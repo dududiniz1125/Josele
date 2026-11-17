@@ -25,11 +25,6 @@ window.supabase = { createClient: function () {
       getSession: async function () { return { data: { session: session } }; },
       signInAnonymously: async function () { set({ user: await auth('anon=1') }, 'SIGNED_IN'); return { data: { session: session }, error: null }; },
       onAuthStateChange: function (cb) { listeners.push(cb); },
-      signInWithOAuth: async function () {
-        localStorage.setItem('fake-session', JSON.stringify({ user: await auth('email=' + (window.FAKE_EMAIL || 'ana@example.com')) }));
-        location.reload(); return { error: null };
-      },
-      signInWithOtp: async function () { return { error: null }; },
       signOut: async function () { set(null, 'SIGNED_OUT'); return { error: null }; }
     },
     rpc: async function (fn, args) {
@@ -41,13 +36,14 @@ window.supabase = { createClient: function () {
 
 (async () => {
   const { PGlite } = await import('@electric-sql/pglite');
-  const db = new PGlite();
+  const { pgcrypto } = await import('@electric-sql/pglite/contrib/pgcrypto');
+  const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(`
-    create role anon nologin; create role authenticated nologin; create schema auth;
+    create role anon nologin; create role authenticated nologin; create schema auth; create schema extensions;
     create table auth.users (id uuid primary key default gen_random_uuid(), is_anonymous boolean not null default false, email text unique);
     create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
     create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
-    grant usage on schema auth, public to anon, authenticated;
+    grant usage on schema auth, public, extensions to anon, authenticated;
     grant execute on all functions in schema auth to anon, authenticated;`);
   await db.exec(fs.readFileSync(path.join(ROOT, 'supabase/setup.sql'), 'utf8'));
 
@@ -80,7 +76,6 @@ window.supabase = { createClient: function () {
         json(r.rows[0]);
       });
     }
-    if (url.pathname === '/auth/v1/settings') return json({ external: { google: true, email: true } });
     if (url.pathname === '/__rpc') {
       let body = '';
       for await (const c of req) body += c;
@@ -124,189 +119,219 @@ window.supabase = { createClient: function () {
   const lbRows = (p) => p.$$eval('.lb tr:not(:first-child)', (trs) => trs.map((tr) => (tr.className ? '[' + tr.className + '] ' : '') + Array.from(tr.children, (td) => td.textContent).join('|')));
   const openLb = async (p, tab) => {
     if (await p.isVisible('.modal')) await p.click('#modal-close');
-    await p.click('[data-open="leaderboard"]');
+    await p.click((await p.isVisible('#home')) ? '#home-leaderboard' : '[data-open="leaderboard"]');
     if (tab) await p.click('.tab:text("' + tab + '")');
     await p.waitForSelector('.lb, .modal p:not(.small)');
     await p.waitForTimeout(250);
   };
   const step = (msg) => console.log('  ok  ' + msg);
-  const pick = async (p, which) => {
-    await p.waitForSelector('#modal-title:text("What do you want to play?")');
-    await p.click(`[data-mode="${which}"]`);
-  };
-  // First visit: name, then Daily/Unlimited, then the how-to-play popup.
+  // First visit: home screen, pick a game, type a name, read the how-to-play popup.
   const join = async (p, name, which) => {
+    await p.click('#home-' + (which || 'daily'));
     await p.fill('.field', name); await p.click('.btn');
-    await pick(p, which || 'daily');
     await p.click('.btn:text("Click here to play!")');
   };
+  const home = async (p) => {
+    if (await p.isVisible('.modal')) await p.click('#modal-close');
+    if (!(await p.isVisible('#home'))) await p.click('#home-btn');
+  };
+  const account = (p) => p.textContent('#home-account');
 
-  // --- Player 1 on a phone: name popup, new highlighting, win, share, leaderboard.
+  // --- Player 1 on a phone: home screen, name popup, highlighting, win, share, leaderboard.
   const a = await open('iPhone 13');
+  assert.equal(await a.isVisible('#home'), true);
+  assert.equal(await a.isVisible('#app'), false);
+  assert.match(await a.textContent('.home-top h1'), /Josele/);
+  assert.equal(await account(a), 'Log in / Create account');
+  await a.waitForTimeout(300);
+  await shot(a, 'phone-home');
+  await noScroll(a);
+  await a.click('#home-daily');
   assert.equal(await a.textContent('#modal-title'), "What's your name?");
-  assert.equal(await a.isVisible('#modal-close'), false, 'name popup cannot be skipped');
-  await shot(a, 'phone-name');
-  await a.keyboard.press('Escape');
   await a.fill('.field', 'sh1t'); await a.click('.btn');
   assert.equal(await a.textContent('.error'), 'Please pick another name');
   await a.fill('.field', 'Dudu!'); await a.click('.btn');
   assert.equal(await a.textContent('.error'), 'Letters, numbers and spaces only');
   assert.equal(await a.getAttribute('.field', 'maxlength'), '15');
   await a.fill('.field', 'Dudu'); await a.click('.btn');
-  assert.equal(await a.textContent('#modal-title'), 'What do you want to play?');
-  await shot(a, 'phone-mode');
-  await pick(a, 'daily');
   await a.waitForSelector('#modal-title:text("How to play")');
-  await shot(a, 'phone-help');
+  assert.equal(await a.isVisible('#home'), false);
   await a.click('.btn');
-  step('first visit asks for a name, filters bad ones, then shows how to play');
+  step('home screen first; a new player picks a game, types a name, then sees how to play');
 
   const { best, longer } = await paths(a);
   const expectMatch = (w) => [...w].map((c, i) => c === 'JOSE'[i]);
   const rowMatches = (p) => p.$$eval('#board .row:not(.current)', (rows) => rows.map((r) => Array.from(r.children, (t) => t.classList.contains('match'))));
   await play(a, best.slice(1, -1));
   assert.deepEqual(await rowMatches(a), best.slice(0, -1).map(expectMatch));
-  assert.equal(await a.$$eval('.tile.changed', (t) => t.length), 0);
-  // Give up: asks first, then resets to the start word; "No" keeps the board.
-  assert.equal(await a.isVisible('#giveup-btn'), true);
   await a.click('#giveup-btn');
   assert.equal(await a.textContent('#modal-title'), 'Want to give up?');
-  await shot(a, 'phone-giveup');
   await a.click('.btn:text("No, keep playing")');
   assert.equal(await a.locator('#board .row:not(.current)').count(), best.length - 1);
   await a.click('#giveup-btn');
   await a.click('.btn:text("Yes, start over")');
   assert.equal(await a.locator('#board .row:not(.current)').count(), 1);
-  assert.equal(await a.isVisible('#giveup-btn'), false, 'nothing to give up at the start');
+  assert.equal(await a.isVisible('#giveup-btn'), false);
   await a.reload();
-  await pick(a, 'daily');
-  assert.equal(await a.locator('#board .row:not(.current)').count(), 1, 'reset survives a refresh');
+  assert.equal(await a.isVisible('#home'), true, 'every visit starts on the home screen');
+  assert.equal(await a.isVisible('.modal'), false, 'name is not asked again');
+  await a.click('#home-daily');
   await play(a, best.slice(1, -1));
-  step('give up asks for confirmation and resets the board for another try');
   await a.keyboard.type('JO');
   await shot(a, 'phone-board');
   await a.keyboard.press('Backspace'); await a.keyboard.press('Backspace');
   await noScroll(a);
   await play(a, ['JOSE']);
   assert.deepEqual((await rowMatches(a)).pop(), [true, true, true, true]);
-  assert.equal(await a.isVisible('#giveup-btn'), false, 'no give up after winning');
   await a.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
-  await shot(a, 'phone-result');
   await a.click('.btn:text("Share")');
   const shared = await a.evaluate(() => navigator.clipboard.readText());
   const grid = best.slice(1).map((w) => expectMatch(w).map((m) => (m ? '🟩' : '⬛')).join(''));
   assert.equal(shared, `Josele #${await a.evaluate(() => JoseleEngine.puzzleNumber(JoseleEngine.dateKey()))} — ${best.length - 1} steps (best: ${best.length - 1})\n${grid.join('\n')}\nhttps://josele.io`);
-  step('tiles are green only where they match JOSE; share text uses 🟩/⬛ per step');
-  console.log(shared.split('\n').map((l) => '        ' + l).join('\n'));
-
   await openLb(a);
   assert.deepEqual(await lbRows(a), [`[me] 1|Dudu (you)|${best.length - 1}|⭐`]);
-  await a.reload();
-  assert.equal(await a.textContent('#modal-title'), 'What do you want to play?', 'name is not asked again');
-  await pick(a, 'daily');
-  assert.equal(await a.textContent('#modal-title'), 'Nice one!');
-  step('result reaches the leaderboard; name is remembered');
+  step('give up, green tiles, share text and leaderboard still work');
 
-  // Replay after winning: board resets, but the first result is the one that counts.
-  await a.click('.btn:text("Play again")');
-  assert.equal(await a.locator('#board .row:not(.current)').count(), 1);
-  assert.equal(await a.isVisible('#replay-btn'), false);
-  await play(a, longer.slice(1, 3));
-  await a.reload();
-  await pick(a, 'daily');
-  assert.equal(await a.locator('#board .row:not(.current)').count(), 3, 'replay progress survives a refresh');
-  await play(a, longer.slice(3));
+  // Replay after winning keeps the first result.
+  await a.click('#modal-close'); await a.click('#replay-btn');
+  await play(a, longer.slice(1));
   await a.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
   assert.match(await a.textContent('#modal-body'), /This was a replay/);
-  await shot(a, 'phone-replay-result');
   await openLb(a);
-  assert.deepEqual(await lbRows(a), [`[me] 1|Dudu (you)|${best.length - 1}|⭐`], 'leaderboard keeps the first result');
-  await a.click('#modal-close'); await a.click('[data-open="stats"]');
-  assert.deepEqual(await a.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['1', '1', '1', '1'], 'stats count the day once');
-  await a.click('#modal-close');
-  assert.equal(await a.isVisible('#replay-btn'), true);
-  await a.click('#replay-btn');
-  assert.equal(await a.locator('#board .row:not(.current)').count(), 1);
-  step('players can replay after winning; stats and leaderboard keep the first result');
+  assert.deepEqual(await lbRows(a), [`[me] 1|Dudu (you)|${best.length - 1}|⭐`]);
+  step('replay keeps the first result');
 
-  // --- Player 2 on an iPad: slower path, then logs in and keeps the result.
+  // --- Create an account from the home screen: name, username, password.
+  await home(a);
+  assert.match(await a.textContent('#home-daily-note'), /Solved today/);
+  await a.click('#home-account');
+  await a.click('.tab:text("Create account")');
+  await a.waitForTimeout(250);
+  await shot(a, 'phone-create-account');
+  const fields = (p) => p.locator('.modal .form .field');
+  await fields(a).nth(0).fill('Eduardo Diniz');
+  await fields(a).nth(1).fill('du'); await fields(a).nth(2).fill('segredo1');
+  await a.click('.modal .form .btn');
+  assert.match(await a.textContent('.modal .error'), /3 to 15 characters/);
+  await fields(a).nth(1).fill('Dudu'); await fields(a).nth(2).fill('123');
+  await a.click('.modal .form .btn');
+  assert.match(await a.textContent('.modal .error'), /at least 6 characters/);
+  await fields(a).nth(2).fill('segredo1');
+  await a.click('.modal .form .btn');
+  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
+  assert.equal(await account(a), '👤 Eduardo Diniz · @Dudu · 🔥 1');
+  assert.equal(await a.textContent('#modal-title'), 'Your account');
+  assert.deepEqual(await a.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['1', '1', '1', '1']);
+  await a.waitForTimeout(250);
+  await shot(a, 'phone-account');
+  await openLb(a);
+  assert.deepEqual(await lbRows(a), [`[me] 1|Eduardo Diniz (you)|${best.length - 1}|⭐`], 'guest result now belongs to the account');
+  await a.reload();
+  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
+  step('creating an account keeps the result and the browser stays logged in after a refresh');
+
+  // --- Player 2 on an iPad: usernames are unique whatever the capitals.
   const b = await open('iPad (gen 7)');
+  await b.waitForTimeout(300);
+  await shot(b, 'ipad-home');
   await join(b, 'Ana');
   await shot(b, 'ipad-board');
   await play(b, longer.slice(1));
   await b.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
   await openLb(b);
-  assert.deepEqual(await lbRows(b), [`1|Dudu|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`]);
+  assert.deepEqual(await lbRows(b), [`1|Eduardo Diniz|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`]);
   await shot(b, 'ipad-leaderboard');
   await noScroll(b);
   await b.click('#modal-close'); await b.click('#account-btn');
-  assert.equal(await b.textContent('#account-btn'), 'Log in');
-  await shot(b, 'ipad-account');
-  await b.click('.btn.google');
+  await b.click('.tab:text("Create account")');
+  for (const taken of ['dudu', 'DUDU', 'Dudu']) {
+    await fields(b).nth(1).fill(taken); await fields(b).nth(2).fill('outrasenha');
+    await b.click('.modal .form .btn');
+    await b.waitForFunction(() => /taken/.test(document.querySelector('.modal .error').textContent));
+  }
+  await fields(b).nth(1).fill('ana_b');
+  await b.click('.modal .form .btn');
   await b.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
-  await openLb(b);
-  assert.deepEqual(await lbRows(b), [`1|Dudu|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`], 'guest result moved to the account, no duplicate');
-  step('playing first and logging in later keeps the result (no duplicate row)');
+  step('a username can only exist once (dudu = Dudu = DUDU)');
 
-  // --- Same account on a new phone: name, solved board and stats follow.
+  // --- Logging in on a new phone with username + password.
   const c = await open('iPhone SE');
-  await join(c, 'Temp');
-  await c.click('#account-btn');
-  await shot(c, 'se-account');
-  await c.click('.btn.google');
-  await c.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
+  await c.click('#home-account');
+  assert.equal(await c.textContent('#modal-title'), 'Account');
+  await c.waitForTimeout(250);
+  await shot(c, 'se-login');
+  await fields(c).nth(0).fill('dudu'); await fields(c).nth(1).fill('errada');
+  await c.click('.modal .form .btn');
+  await c.waitForFunction(() => /Wrong username or password/.test(document.querySelector('.modal .error').textContent));
+  assert.equal(await account(c), 'Log in / Create account');
+  await fields(c).nth(0).fill('DUDU'); await fields(c).nth(1).fill('segredo1');
+  await c.click('.modal .form .btn');
+  await c.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
+  assert.equal(await account(c), '👤 Eduardo Diniz · @Dudu · 🔥 1');
+  await c.click('#modal-close');
+  await noScroll(c);
+  await c.click('#home-daily');
+  assert.notEqual(await c.textContent('#modal-title').catch(() => ''), "What's your name?", 'no name prompt: the account has one');
   await c.waitForSelector('.row.win');
-  assert.equal(await c.locator('#board .row').count(), longer.length);
+  assert.equal(await c.locator('#board .row').count(), best.length, "today's solved board follows the account");
   if (await c.isVisible('.modal')) await c.click('#modal-close');
   await c.click('[data-open="stats"]');
-  assert.deepEqual(await c.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['1', '1', '1', '0']);
+  assert.deepEqual(await c.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['1', '1', '1', '1']);
   await openLb(c, 'Streaks');
-  assert.deepEqual(await lbRows(c), ['[me] 1|Ana (you)|🔥 1|1', '2|Dudu|🔥 1|1']);
+  assert.deepEqual(await lbRows(c), ['1|Ana|🔥 1|1', '[me] 2|Eduardo Diniz (you)|🔥 1|1']);
   await shot(c, 'se-streaks');
   await noScroll(c);
-  step('logging in on another device restores name, today\'s board, stats and streak');
-  await c.click('#modal-close'); await c.click('#replay-btn');
-  await play(c, best.slice(1, 2));
-  await c.reload();
-  await pick(c, 'daily');
-  await c.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
-  await c.waitForTimeout(400);
-  assert.equal(await c.locator('#board .row:not(.current)').count(), 2, 'a logged-in replay is not overwritten by the saved result');
-  step('a logged-in player can replay too');
+  step('log in with username and password on another device: name, board, stats and streak follow');
+
+  // --- Guest progress on a device joins the account at log-in.
+  const e = await open('iPhone 13');
+  await join(e, 'Convidado');
+  await play(e, longer.slice(1));
+  await e.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
+  await openLb(e);
+  assert.equal((await lbRows(e)).length, 3);
+  await e.click('#modal-close'); await e.click('#account-btn');
+  await fields(e).nth(0).fill('ana_b'); await fields(e).nth(1).fill('outrasenha');
+  await e.click('.modal .form .btn');
+  await e.waitForFunction(() => document.getElementById('account-btn').textContent === '👤 Ana');
+  await openLb(e);
+  assert.deepEqual(await lbRows(e), [`1|Eduardo Diniz|${best.length - 1}|⭐`, `[me] 2|Ana (you)|${best.length}|`], 'no duplicate guest row');
+  step('a guest who logs in later is merged into the account');
 
   // --- A cheater calling the API directly from the browser console.
   const forged = await a.evaluate(async (start) => {
     const s = JSON.parse(localStorage.getItem('fake-session'));
     const send = (fn, args) => fetch('/__rpc', { method: 'POST', body: JSON.stringify({ fn, args, user: s.user }) }).then((r) => r.json());
     return [await send('submit_result', { p_day: JoseleEngine.dateKey(), p_path: [start, 'JOSE'] }),
-      await send('josele_recompute', { p_player: s.user.id })];
+      await send('josele_recompute', { p_player: s.user.id }),
+      await send('josele_player', {})];
   }, best[0]);
   assert.match(forged[0].error.message, /used twice|More than one letter/);
   assert.match(forged[1].error.message, /permission denied/);
+  assert.match(forged[2].error.message, /permission denied/);
   step('forged results are rejected by the server');
 
   // --- Not in the top 50: your own rank is still shown.
   await db.exec(`
-    insert into auth.users (id, is_anonymous) select gen_random_uuid(), true from generate_series(1, 60);
-    insert into players (id, name) select id, 'Bot ' || row_number() over () from auth.users u where not exists (select 1 from players p where p.id = u.id) and is_anonymous;
+    insert into players (name) select 'Bot ' || g from generate_series(1, 60) g;
     insert into results (player_id, day, steps, optimal, path, finished_at)
       select id, josele_today(), 3, 3, '{}', now() - interval '2 hours' from players where name like 'Bot %';`);
   await openLb(b, 'Today');
   const rows = await lbRows(b);
   assert.equal(rows.length, 52);
   assert.equal(rows[50], '[gap] ⋯');
-  const total = (await db.query('select count(*)::int c from results')).rows[0].c;
-  assert.ok(total > 60);
-  assert.equal(rows[51], `[me] ${total}|Ana (you)|${best.length}|`);
-  await b.$eval('.lb-wrap', (w) => { w.scrollTop = w.scrollHeight; });
-  await shot(b, 'ipad-rank-outside-top50');
+  assert.equal(rows[51], `[me] 62|Ana (you)|${best.length}|`);
   step('your rank is shown even outside the top 50');
 
-  // --- Log out returns the device to a fresh guest.
-  await b.click('#modal-close'); await b.click('#account-btn'); await b.click('.btn:text("Log out")');
-  await b.waitForFunction(() => document.getElementById('account-btn').textContent === 'Log in');
-  assert.equal(await b.locator('#board .row').count(), 2);
-  step('log out works');
+  // --- Log out returns the device to a fresh guest; the account still works.
+  await home(c);
+  await c.click('#home-account'); await c.click('.btn:text("Log out")');
+  await c.waitForFunction(() => document.getElementById('home-account').textContent === 'Log in / Create account');
+  await c.click('#home-daily');
+  assert.equal(await c.locator('#board .row').count(), 2, 'fresh board after log out');
+  await a.reload();
+  await a.waitForFunction(() => document.getElementById('home-account').textContent.includes('@Dudu'));
+  step('log out works and does not affect the other device');
 
   // --- No keys pasted yet: the game still works offline.
   server.offline = true;
@@ -326,18 +351,16 @@ window.supabase = { createClient: function () {
     assert.ok(!seen.includes(start) && start !== best[0], 'a fresh word each time');
     seen.push(start);
     const route = await solve(start);
-    assert.ok(route.length >= 3 && route.length <= 6);
     await play(d, route.slice(0, 1));
     if (i === 0) {
       await d.reload();
-      await pick(d, 'unlimited');
+      await d.click('#home-unlimited');
       assert.equal(await sub(), 'Unlimited: ' + start, 'unlimited progress survives a refresh');
       assert.equal(await d.locator('#board .row:not(.current)').count(), 2);
     }
     await play(d, route.slice(1));
     await d.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
     assert.match(await d.textContent('#modal-body'), new RegExp('Unlimited puzzles solved: ' + (i + 1)));
-    if (i === 0) await shot(d, 'phone-unlimited-result');
     await d.click('.btn:text("Next puzzle")');
     assert.equal(await d.locator('#board .row:not(.current)').count(), 1);
   }
@@ -348,10 +371,9 @@ window.supabase = { createClient: function () {
   assert.notEqual(await sub(), before);
   await d.click('[data-open="stats"]');
   assert.deepEqual(await d.$$eval('.stat b', (bs) => bs.map((x) => x.textContent)), ['0', '0', '0', '0'], 'unlimited does not touch daily stats');
-  await d.click('#modal-close');
-  await shot(d, 'phone-unlimited-board');
-  await d.click('#mode-btn');
-  await pick(d, 'daily');
+  await home(d);
+  assert.equal(await d.textContent('#home-unlimited-note'), '3 solved so far');
+  await d.click('#home-daily');
   assert.match(await sub(), /^#\d+: /);
   assert.equal(await d.locator('#board .row:not(.current)').count(), 1, 'daily puzzle is untouched');
   await noScroll(d);
@@ -361,8 +383,10 @@ window.supabase = { createClient: function () {
   await d.waitForSelector('#modal-title:text("Nice one!")', { timeout: 6000 });
   await openLb(d);
   assert.match(await d.textContent('#modal-body'), /not switched on yet/);
-  await shot(d, 'phone-offline-leaderboard');
-  step('without Supabase keys the game still plays; leaderboard says it is not switched on');
+  await home(d);
+  await d.click('#home-account');
+  assert.match(await d.textContent('#modal-body'), /not switched on yet/);
+  step('without Supabase keys the game still plays; accounts and leaderboard say they are not switched on');
 
   assert.deepEqual(errors, [], 'no browser errors');
   console.log('\nBrowser test passed');

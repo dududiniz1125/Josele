@@ -41,8 +41,8 @@
 
   function isOffensive(name) {
     var folded = fold(name);
-    var squashed = folded.replace(/ /g, '');
-    var words = folded.split(' ');
+    var squashed = folded.replace(/[ _]/g, '');
+    var words = folded.replace(/_/g, ' ').split(' ');
     return BLOCK_ANYWHERE.some(function (b) { return squashed.indexOf(b) !== -1; }) ||
       BLOCK_WORD.some(function (b) { return words.indexOf(b) !== -1; });
   }
@@ -57,7 +57,31 @@
     return { ok: true, name: name };
   }
 
+  // Account usernames: no spaces, and "Dudu" and "dudu" count as the same one.
+  var USERNAME_MIN = 3;
+  var USERNAME_ALLOWED = '^[A-Za-z0-9_]+$';
+  var PASSWORD_MIN = 6;
+
+  function validateUsername(raw) {
+    var u = String(raw == null ? '' : raw).trim();
+    if (u.length < USERNAME_MIN || u.length > MAX_LENGTH) {
+      return { ok: false, reason: 'Username must be ' + USERNAME_MIN + ' to ' + MAX_LENGTH + ' characters' };
+    }
+    if (!new RegExp(USERNAME_ALLOWED).test(u)) return { ok: false, reason: 'Username: letters, numbers and _ only' };
+    if (isOffensive(u)) return { ok: false, reason: 'Please pick another username' };
+    return { ok: true, username: u };
+  }
+
+  function validatePassword(raw) {
+    var p = String(raw == null ? '' : raw);
+    if (p.length < PASSWORD_MIN) return { ok: false, reason: 'Password must be at least ' + PASSWORD_MIN + ' characters' };
+    if (p.length > 72) return { ok: false, reason: 'Password is too long' };
+    return { ok: true };
+  }
+
   var api = {
+    USERNAME_MIN: USERNAME_MIN, USERNAME_ALLOWED: USERNAME_ALLOWED, PASSWORD_MIN: PASSWORD_MIN,
+    validateUsername: validateUsername, validatePassword: validatePassword,
     MAX_LENGTH: MAX_LENGTH, ALLOWED: ALLOWED, FOLD_FROM: FOLD_FROM, FOLD_TO: FOLD_TO,
     BLOCK_ANYWHERE: BLOCK_ANYWHERE, BLOCK_WORD: BLOCK_WORD,
     clean: clean, fold: fold, isOffensive: isOffensive, validate: validate

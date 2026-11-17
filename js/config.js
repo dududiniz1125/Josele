@@ -5,8 +5,8 @@
 //   SUPABASE_ANON_KEY -> Supabase dashboard -> Project Settings -> API Keys -> "Publishable key"
 //                        (starts with sb_publishable_; the older "anon public" key also works)
 //
-// NEVER paste the "secret" / "service_role" key, the database password or the
-// Google client secret into this file or anywhere else in this repository.
+// NEVER paste the "secret" / "service_role" key or the database password
+// into this file or anywhere else in this repository.
 //
 // Leave either one empty to run the game offline-only (no leaderboard, no login).
 window.JOSELE_CONFIG = {

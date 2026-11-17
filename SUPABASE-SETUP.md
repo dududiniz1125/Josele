@@ -19,7 +19,7 @@ This creates the tables, the word lists and the functions that check every resul
 
 ## 3. Allow guests
 
-Every player gets an invisible guest account so they can be on the leaderboard without logging in.
+Every browser gets an invisible guest session. It is what lets people be on the leaderboard without an account, and it is also what a username-and-password account attaches to.
 
 **Authentication → Sign In / Providers → Allow anonymous sign-ins → on → Save.**
 
@@ -54,41 +54,44 @@ These two values are meant to be public: every visitor's browser needs them, and
 
 - the **secret** key (`sb_secret_...`) or the old `service_role` key
 - the database password
-- the Google **client secret** (step 6)
 
-The game does not need any of them. The Google client secret is only ever typed into the Supabase dashboard.
+The game does not need any of them.
 
-At this point names, guest play and both leaderboards work. Steps 6 and 7 add log in.
+That is everything. Names, guest play, accounts and both leaderboards work from here.
 
-## 6. Sign in with Google
+## 6. Accounts (username + password)
 
-1. Go to console.cloud.google.com, create a project (any name).
-2. **APIs & Services → OAuth consent screen**: choose External, fill in the app name (Josele) and your email, save. Then publish the app (otherwise only test users you list can log in).
-3. **APIs & Services → Credentials → Create credentials → OAuth client ID → Web application.**
-   - **Authorized JavaScript origins:** `https://www.josele.io` and `https://josele.io`
-   - **Authorized redirect URIs:** the callback address Supabase shows you in the next step. It looks like `https://abcdefgh.supabase.co/auth/v1/callback`.
-4. Google gives you a **Client ID** and a **Client secret**.
-5. In Supabase: **Authentication → Sign In / Providers → Google** → turn it on, paste the Client ID and Client secret there, Save.
+Nothing to switch on. Accounts are handled by the database script from step 2, so there is no Google or email set-up.
 
-## 7. Email magic link
+- A player creates an account with a name, a username and a password. Usernames are unique whatever the capitals (`dudu`, `Dudu` and `DUDU` are the same username).
+- Passwords are never stored. Only a bcrypt hash is kept, in a table the browser cannot read.
+- After 8 wrong passwords for a username, that username is locked for 10 minutes.
+- There is no email, so a player cannot reset a forgotten password by themselves. You can set a new one for them in the SQL Editor:
 
-The Email provider is on by default, and the game's "Email me a link" button uses it. One important limit: Supabase's built-in email sender only delivers to the email addresses of your own Supabase team and allows only a couple of emails per hour. It is for testing.
+  ```sql
+  update public.players
+     set pass_hash = extensions.crypt('the-new-password', extensions.gen_salt('bf', 10))
+   where lower(username) = lower('their_username');
+  ```
 
-For your friends to log in by email you need to connect an email service: **Project Settings → Authentication → SMTP Settings → Enable custom SMTP**. Resend, Brevo and similar services have free tiers; they give you a host, port, username and password to paste into that Supabase page (again: dashboard only, never the repository).
+It is a simple account system for a game. Tell players not to reuse a password they use for anything important.
 
-If you skip this, hide nothing: Google login still works for everyone, and the email button will work only for you.
+## 7. Updating the database later
+
+Whenever `supabase/setup.sql` changes in the repository (new features, new word lists), paste the whole file into the SQL Editor and run it again. It upgrades the tables in place and keeps every player and result.
 
 ## 8. Check it
 
 1. Open the site in a private window. Type a name, solve the puzzle, open **Leaderboard**: you should be on it.
 2. In Supabase → **Table Editor** → `results`: your row is there.
-3. Press **Log in**, use Google. The button at the top should change to your name, and your result should still be on the leaderboard once (not twice).
+3. On the home screen press **Log in / Create account**, create an account, and check the button now shows your name and username. Your result should still be on the leaderboard once (not twice).
+4. Open the site in another private window, log in with the same username and password, and check your streak and today's solved board are there.
 
 ## How cheating is prevented
 
 - The browser cannot write to the tables. Row-level security is on and no write access is granted.
 - The only way to save a result is the `submit_result` database function. It works out today's start word from the date on the server, checks that every word is in the word list, that each step changes exactly one letter, that no word is repeated and that the path ends at JOSE. Anything else is rejected.
-- A result is always saved under the player who is signed in, and only once per player per day.
+- A result is always saved under the player that browser is playing as, and only once per player per day.
 
 What it cannot prevent: someone working out a shortest path elsewhere and typing it in. The server only guarantees that every result on the board is a real, legal solution.
 

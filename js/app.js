@@ -28,10 +28,12 @@
   var modalLocked = false;
   var openName = null;   // which modal is open
   var lbTab = 'today';
+  var accountTab = 'login';
+  var pendingMode = null; // what to start once the player has a name
 
   var $ = function (id) { return document.getElementById(id); };
   var boardEl = $('board'), wrapEl = $('board-wrap'), keyboardEl = $('keyboard');
-  var toastEl = $('toast'), rainEl = $('rain');
+  var toastEl = $('toast'), rainEl = $('rain'), homeEl = $('home'), appEl = $('app');
   var backdropEl = $('modal-backdrop'), modalTitleEl = $('modal-title'), modalBodyEl = $('modal-body');
 
   function el(tag, cls, text) {
@@ -152,12 +154,16 @@
     }
   }
 
+  // The account buttons (in the game header and on the home screen).
   function renderAccountButton() {
-    var b = $('account-btn');
-    var u = Online.user();
+    var acct = Online.account();
     var name = getName();
-    if (u && !u.isAnonymous) b.textContent = '👤 ' + (name || 'Account');
-    else b.textContent = Online.enabled ? 'Log in' : (name ? '👤 ' + name : 'Name');
+    var streak = loadStats().streak;
+    $('account-btn').textContent = acct ? '👤 ' + acct.name : (Online.enabled ? 'Log in' : (name ? '👤 ' + name : 'Name'));
+    $('home-account').textContent = acct
+      ? '👤 ' + acct.name + ' · @' + acct.username + (streak ? ' · 🔥 ' + streak : '')
+      : (Online.enabled ? 'Log in / Create account' : (name ? '👤 ' + name : 'Set your name'));
+    $('home-hello').textContent = name ? 'Hi, ' + name + '!' : 'Change one letter at a time until you reach JOSE.';
   }
 
   function mini(words) {
@@ -185,7 +191,7 @@
   /* ---------- input ---------- */
 
   function press(key) {
-    if (state.done || busy || !backdropEl.hidden) return;
+    if (state.done || busy || !backdropEl.hidden || !homeEl.hidden) return;
     if (key === 'ENTER') return submit();
     if (key === 'BACK') { input = input.slice(0, -1); return renderInput(); }
     if (/^[A-Z]$/.test(key) && input.length < WORD_LEN) { input += key; renderInput(); }
@@ -284,15 +290,39 @@
     state = slot.state;
     input = '';
     $('subtitle').textContent = (which === 'daily' ? '#' + puzzle.number : 'Unlimited') + ': ' + puzzle.start;
-    $('mode-btn').textContent = which === 'daily' ? 'Daily' : 'Unlimited';
     $('replay-btn').textContent = which === 'daily' ? 'Play again' : 'Next puzzle';
     renderBoard(false);
   }
 
-  function chooseMode(which) {
-    modalLocked = false;
+  /* ---------- home screen ---------- */
+
+  function showHome() {
+    if (busy) return;
     backdropEl.hidden = true;
     openName = null;
+    modalLocked = false;
+    showHomeNotes();
+    homeEl.hidden = false;
+    appEl.hidden = true;
+  }
+
+  function showHomeNotes() {
+    renderAccountButton();
+    $('home-daily-note').textContent = daily.state.done
+      ? 'Solved today in ' + (daily.state.rows.length - 1) + ' steps'
+      : '#' + daily.puzzle.number + ' · same word for everyone';
+    $('home-unlimited-note').textContent = unlimited.solved
+      ? unlimited.solved + ' solved so far' : 'As many as you like';
+  }
+
+  // "Play daily" / "Play unlimited" on the home screen. New players pick a name first.
+  function chooseMode(which) {
+    if (!getName()) { pendingMode = which; return openModal('name'); }
+    pendingMode = null;
+    backdropEl.hidden = true;
+    openName = null;
+    homeEl.hidden = true;
+    appEl.hidden = false;
     show(which);
     if (!load(SEEN_KEY, null)) openModal('help');
     else if (state.done) openModal('result');
@@ -420,7 +450,7 @@
       if (!v.ok) { error.textContent = v.reason; return; }
       b.disabled = true;
       // The server applies the same rules; it has the final say when online.
-      Promise.resolve(Online.user() ? Online.setName(v.name) : v.name).then(function (saved) {
+      Promise.resolve(Online.setName(v.name)).then(function (saved) {
         setLocalName(saved || v.name);
         onSaved();
       }, function (err) {
@@ -437,57 +467,96 @@
     backdropEl.hidden = true;
     openName = null;
     Online.sync();
-    openModal('mode');
+    if (pendingMode) chooseMode(pendingMode);
+    else renderAccountButton();
   }
 
-  function loginSection(body) {
-    body.appendChild(el('div', 'divider', 'Log in / Sign up'));
-    body.appendChild(el('p', 'small', 'Optional. Keeps your name, stats and streak on every device.'));
-    var status = el('p', 'error');
-    var google = button('btn google', 'Continue with Google', function () {
-      google.disabled = true;
-      Online.loginGoogle().catch(function (err) {
-        google.disabled = false;
-        status.textContent = err.message || 'Could not start Google login';
-      });
-    });
-    var wrap = el('div', 'form');
-    wrap.appendChild(google);
-    body.appendChild(wrap);
-    // Only offer the login methods that are switched on in Supabase.
-    google.hidden = true;
-    Online.providers().then(function (p) {
-      google.hidden = !p.google;
-      form.hidden = !p.email;
-      if (!p.google && !p.email) status.textContent = 'Log in is not available yet.';
-    });
+  function input_(type, placeholder, autocomplete, max) {
+    var f = el('input', 'field');
+    f.type = type;
+    f.placeholder = placeholder;
+    f.autocomplete = autocomplete;
+    f.setAttribute('aria-label', placeholder);
+    f.autocapitalize = 'none';
+    f.spellcheck = false;
+    if (max) f.maxLength = max;
+    return f;
+  }
 
-    var form = el('form', 'form-row');
-    form.style.marginTop = '10px';
-    var email = el('input', 'field');
-    email.type = 'email';
-    email.required = true;
-    email.placeholder = 'you@email.com';
-    email.autocomplete = 'email';
-    email.setAttribute('aria-label', 'Email address');
-    var send = el('button', 'btn secondary', 'Email me a link');
-    send.type = 'submit';
-    form.appendChild(email);
-    form.appendChild(send);
-    form.addEventListener('submit', function (ev) {
-      ev.preventDefault();
-      send.disabled = true;
-      status.textContent = '';
-      Online.loginEmail(email.value.trim()).then(function () {
-        status.style.color = '#5fd583';
-        status.textContent = 'Check your email and open the link on this device.';
-      }, function (err) {
-        send.disabled = false;
-        status.textContent = err.message || 'Could not send the email';
+  // "Log in" and "Create account" forms: a username and a password, no email.
+  function accountForms(body) {
+    var tabs = el('div', 'tabs');
+    var holder = el('div');
+    function draw() {
+      holder.textContent = '';
+      var creating = accountTab === 'create';
+      var form = el('form', 'form');
+      var name = input_('text', 'Your name (e.g. Eduardo Diniz)', 'name', Names.MAX_LENGTH);
+      name.autocapitalize = 'words';
+      name.value = getName();
+      var username = input_('text', 'Username', 'username', Names.MAX_LENGTH);
+      var password = input_('password', 'Password', creating ? 'new-password' : 'current-password', 72);
+      var error = el('p', 'error');
+      var go = el('button', 'btn', creating ? 'Create account' : 'Log in');
+      go.type = 'submit';
+      if (creating) form.appendChild(name);
+      form.appendChild(username);
+      form.appendChild(password);
+      form.appendChild(error);
+      form.appendChild(go);
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var job;
+        if (creating) {
+          var n = Names.validate(name.value);
+          var u = Names.validateUsername(username.value);
+          var pw = Names.validatePassword(password.value);
+          var bad = [n, u, pw].filter(function (r) { return !r.ok; })[0];
+          if (bad) { error.textContent = bad.reason; return; }
+          job = function () { return Online.signUp(n.name, u.username, password.value); };
+        } else {
+          if (!username.value.trim() || !password.value) { error.textContent = 'Type your username and password'; return; }
+          job = function () { return Online.logIn(username.value.trim(), password.value); };
+        }
+        go.disabled = true;
+        error.textContent = '';
+        job().then(function () {
+          toast(creating ? 'Account created!' : 'Welcome back!');
+          if (pendingMode && getName()) chooseMode(pendingMode);
+        }, function (err) {
+          go.disabled = false;
+          error.textContent = err.message || 'Something went wrong';
+        });
       });
+      holder.appendChild(form);
+      holder.appendChild(el('p', 'small', creating
+        ? 'Usernames are unique: letters, numbers and _ (3–15). Password: at least ' + Names.PASSWORD_MIN +
+          ' characters. Write it down — there is no email, so it cannot be recovered.'
+        : 'Your streak and stats come with you on any device.'));
+    }
+    [['login', 'Log in'], ['create', 'Create account']].forEach(function (t) {
+      var b = button('tab' + (accountTab === t[0] ? ' active' : ''), t[1], function () {
+        accountTab = t[0];
+        Array.prototype.forEach.call(tabs.children, function (c) { c.classList.toggle('active', c === b); });
+        draw();
+      });
+      tabs.appendChild(b);
     });
-    body.appendChild(form);
-    body.appendChild(status);
+    body.appendChild(tabs);
+    body.appendChild(holder);
+    draw();
+  }
+
+  function statGrid(s) {
+    var grid = el('div', 'stat-grid');
+    [[s.played, 'Played'], [s.streak, 'Current streak'], [s.maxStreak, 'Max streak'], [s.optimal, 'Optimal paths']]
+      .forEach(function (p) {
+        var c = el('div', 'stat');
+        c.appendChild(el('b', '', String(p[0])));
+        c.appendChild(el('span', '', p[1]));
+        grid.appendChild(c);
+      });
+    return grid;
   }
 
   /* ---------- leaderboard ---------- */
@@ -571,29 +640,46 @@
       body.appendChild(el('p', '', 'This is how you\'ll appear on the leaderboard.'));
       body.appendChild(nameForm('Play', afterNameChosen));
       body.appendChild(el('p', 'small', 'Up to ' + Names.MAX_LENGTH + ' letters, numbers and spaces.'));
+      if (Online.enabled) {
+        body.appendChild(button('link', 'I already have an account', function () {
+          accountTab = 'login';
+          openModal('account');
+        }));
+      }
       return 'What\'s your name?';
     },
 
     account: function (body) {
-      var u = Online.user();
-      body.appendChild(nameForm('Save name', function () { toast('Name saved'); closeModal(); }));
-      if (!Online.enabled) {
-        body.appendChild(el('p', 'small', 'Log in and leaderboards are not switched on yet.'));
-      } else if (u && !u.isAnonymous) {
+      var acct = Online.account();
+      var s = loadStats();
+      if (acct) {
+        body.appendChild(el('p', 'big', acct.name));
+        body.appendChild(el('p', 'small', '@' + acct.username));
+      }
+      if (acct || s.played || unlimited.solved) {
+        body.appendChild(statGrid(s));
+        body.appendChild(el('p', 'small', 'Unlimited puzzles solved on this device: ' + unlimited.solved));
+      }
+      if (acct) {
+        body.appendChild(el('div', 'divider', 'Change your name'));
+        body.appendChild(nameForm('Save name', function () { toast('Name saved'); Online.sync(); closeModal(); }));
         body.appendChild(el('div', 'divider', 'Account'));
-        body.appendChild(el('p', '', 'Logged in' + (u.email ? ' as ' + u.email : '') + '.'));
-        body.appendChild(el('p', 'small', 'Your name, stats and streak follow you to any device.'));
         body.appendChild(button('btn secondary', 'Log out', function () {
-          Online.logout().then(function () {
+          Online.logOut().catch(function () { /* still log out locally */ }).then(function () {
             // This device goes back to a fresh guest; the account keeps everything.
             try { localStorage.removeItem(STATS_KEY); localStorage.removeItem(STATE_KEY); } catch (err) { /* ignore */ }
             location.reload();
           });
         }));
-      } else {
-        loginSection(body);
+        return 'Your account';
       }
-      return 'Your profile';
+      if (!Online.enabled) {
+        body.appendChild(nameForm('Save name', function () { toast('Name saved'); closeModal(); }));
+        body.appendChild(el('p', 'small', 'Accounts and leaderboards are not switched on yet.'));
+        return 'Your profile';
+      }
+      accountForms(body);
+      return 'Account';
     },
 
     leaderboard: function (body) {
@@ -629,15 +715,7 @@
 
     stats: function (body) {
       var s = loadStats();
-      var grid = el('div', 'stat-grid');
-      [[s.played, 'Played'], [s.streak, 'Current streak'], [s.maxStreak, 'Max streak'], [s.optimal, 'Optimal paths']]
-        .forEach(function (p) {
-          var c = el('div', 'stat');
-          c.appendChild(el('b', '', String(p[0])));
-          c.appendChild(el('span', '', p[1]));
-          grid.appendChild(c);
-        });
-      body.appendChild(grid);
+      body.appendChild(statGrid(s));
       body.appendChild(el('h3', '', 'Steps over optimal'));
       var dist = el('div', 'dist');
       var max = Math.max.apply(null, s.dist.concat(1));
@@ -651,21 +729,6 @@
       });
       body.appendChild(dist);
       return 'Stats';
-    },
-
-    mode: function (body) {
-      var list = el('div', 'form');
-      [['daily', 'Daily puzzle', 'One word a day, the same for everyone. Counts for your streak and the leaderboard.'],
-        ['unlimited', 'Unlimited', 'A new random word every time. Finish one and go straight to the next.']]
-        .forEach(function (m) {
-          var b = button('btn choice' + (m[0] === 'daily' ? '' : ' secondary'), '', function () { chooseMode(m[0]); });
-          b.dataset.mode = m[0];
-          b.appendChild(el('b', '', m[1]));
-          b.appendChild(el('span', '', m[2]));
-          list.appendChild(b);
-        });
-      body.appendChild(list);
-      return 'What do you want to play?';
     },
 
     giveup: function (body) {
@@ -751,9 +814,9 @@
   /* ---------- online ---------- */
 
   // The server's view of this player arrived (on load, after a win, after logging in).
-  function onProfile(profile, user) {
+  function onProfile(profile) {
     if (profile.name && profile.name !== getName()) setLocalName(profile.name);
-    if (!user.isAnonymous) {
+    if (profile.username) {
       // A real account is the source of truth for stats, so they match on every device.
       save(STATS_KEY, {
         played: profile.played, streak: profile.current_streak, maxStreak: profile.best_streak,
@@ -766,22 +829,14 @@
         if (validSavedRows(saved.rows, daily.puzzle.start)) {
           daily.state = saved;
           save(STATE_KEY, saved);
-          if (mode === 'daily' && puzzle) show('daily');
+          if (mode === 'daily' && homeEl.hidden) show('daily');
         }
       }
       if (openName === 'stats') openModal('stats');
     }
     renderAccountButton();
     if (openName === 'account' || openName === 'leaderboard') openModal(openName);
-    if (openName === 'name' && getName()) afterNameChosen();
-  }
-
-  // Supabase reports a failed login in the URL when it sends the player back.
-  function reportAuthError() {
-    var m = /error_description=([^&]+)/.exec(location.hash + '&' + location.search);
-    if (!m) return;
-    toast(decodeURIComponent(m[1].replace(/\+/g, ' ')));
-    history.replaceState(null, '', location.pathname);
+    if (!homeEl.hidden) showHomeNotes();
   }
 
   /* ---------- lifecycle ---------- */
@@ -813,10 +868,15 @@
   loadDaily();
   loadUnlimited();
   show('daily');
-  renderAccountButton();
-  reportAuthError();
 
-  document.getElementById('app').addEventListener('click', function (ev) {
+  $('home-btn').addEventListener('click', showHome);
+  $('home-daily').addEventListener('click', function () { chooseMode('daily'); });
+  $('home-unlimited').addEventListener('click', function () { chooseMode('unlimited'); });
+  $('home-account').addEventListener('click', function () { openModal('account'); });
+  $('home-leaderboard').addEventListener('click', function () { lbTab = 'today'; openModal('leaderboard'); });
+  $('home-help').addEventListener('click', function () { openModal('help'); });
+
+  appEl.addEventListener('click', function (ev) {
     var b = ev.target.closest('[data-open]');
     if (!b) return;
     b.blur();
@@ -828,8 +888,8 @@
   setInterval(checkDate, 20000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkDate(); });
 
-  // Every visit starts by asking what to play (and, the first time, for a name).
-  openModal(getName() ? 'mode' : 'name');
+  // Every visit starts on the home screen.
+  showHome();
 
   Online.init({
     getName: getName,

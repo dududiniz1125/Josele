@@ -22,12 +22,12 @@ node tests/e2e.js                  # optional browser test, needs Playwright
 ```
 
 - `tests/test.js`: JOSE reachable from every start word, 3–6 step puzzles, same word for a date, one-letter rule, name filter.
-- `tests/sql.test.js`: runs `supabase/setup.sql` and checks that the server picks the same start word as the browser, rejects invalid or forged results, allows one result per player per day, ranks the leaderboards correctly, blocks direct table writes, and moves guest progress into an account.
-- `tests/e2e.js`: plays the game in a browser against those same database rules (with a stand-in for Supabase login).
+- `tests/sql.test.js`: runs `supabase/setup.sql` and checks that the server picks the same start word as the browser, rejects invalid or forged results, allows one result per player per day, ranks the leaderboards correctly, blocks direct table reads and writes, keeps usernames unique, stores only password hashes, slows password guessing, moves guest progress into an account, and upgrades an older database without losing data.
+- `tests/e2e.js`: plays the game in a browser against those same database rules (with a stand-in for the Supabase connection).
 
 ## Online features (Supabase)
 
-Names on the leaderboard, log in and streak sync need a free Supabase project. Until the two values in `js/config.js` are filled in, the game still works, just without leaderboard and login. See **SUPABASE-SETUP.md** for the step-by-step guide.
+Names on the leaderboard, username/password accounts and streak sync need a free Supabase project. Until the two values in `js/config.js` are filled in, the game still works, just without leaderboard and login. See **SUPABASE-SETUP.md** for the step-by-step guide.
 
 ## Your background photo
 

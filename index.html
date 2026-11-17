@@ -16,9 +16,29 @@
 <body>
   <div class="bg" aria-hidden="true"></div>
 
-  <main class="app" id="app">
+  <section class="home" id="home">
+    <div class="home-top">
+      <h1><span class="logo" aria-hidden="true">😎</span> Josele</h1>
+      <p id="home-hello">Change one letter at a time until you reach JOSE.</p>
+    </div>
+    <div class="home-bottom">
+      <button type="button" class="home-play" id="home-daily">
+        <b>Play daily game</b><span id="home-daily-note"></span>
+      </button>
+      <button type="button" class="home-play alt" id="home-unlimited">
+        <b>Play unlimited</b><span id="home-unlimited-note"></span>
+      </button>
+      <button type="button" class="home-account" id="home-account">Log in / Create account</button>
+      <div class="home-links">
+        <button type="button" class="link" id="home-leaderboard">Leaderboard</button>
+        <button type="button" class="link" id="home-help">How to play</button>
+      </div>
+    </div>
+  </section>
+
+  <main class="app" id="app" hidden>
     <header class="header">
-      <button type="button" class="mode-btn" id="mode-btn" data-open="mode" title="Switch between Daily and Unlimited">Daily</button>
+      <button type="button" class="mode-btn" id="home-btn" title="Back to the home screen">‹ Home</button>
       <button type="button" class="account-btn" id="account-btn" data-open="account">Log in</button>
       <h1><span class="logo" aria-hidden="true">😎</span> Josele</h1>
       <p class="subtitle" id="subtitle">&nbsp;</p>

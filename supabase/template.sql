@@ -11,14 +11,23 @@
 
 -- ---------------------------------------------------------------- tables
 
+create extension if not exists pgcrypto with schema extensions;
+
+-- A player is either a guest (no username) or an account (username + password).
 create table if not exists public.players (
-  id uuid primary key references auth.users (id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   current_streak integer not null default 0,
   best_streak integer not null default 0,
   last_solved date,
   created_at timestamptz not null default now()
 );
+-- Upgrade from the first version, where a player row was tied to one browser.
+alter table public.players drop constraint if exists players_id_fkey;
+alter table public.players alter column id set default gen_random_uuid();
+alter table public.players add column if not exists username text;
+alter table public.players add column if not exists pass_hash text;
+create unique index if not exists players_username_unique on public.players (lower(username));
 
 create table if not exists public.results (
   player_id uuid not null references public.players (id) on delete cascade,
@@ -31,11 +40,23 @@ create table if not exists public.results (
 );
 create index if not exists results_day_rank on public.results (day, steps, finished_at);
 
-create table if not exists public.merge_tokens (
-  token uuid primary key default gen_random_uuid(),
-  player_id uuid not null references public.players (id) on delete cascade,
-  created_at timestamptz not null default now()
+-- Which player each browser (an anonymous Supabase session) is playing as.
+-- Logging in points the browser at the account's player; logging out removes the row.
+create table if not exists public.player_links (
+  auth_uid uuid primary key references auth.users (id) on delete cascade,
+  player_id uuid not null references public.players (id) on delete cascade
 );
+create index if not exists player_links_player on public.player_links (player_id);
+insert into public.player_links (auth_uid, player_id)
+select p.id, p.id from public.players p join auth.users u on u.id = p.id
+on conflict (auth_uid) do nothing;
+
+-- Failed log-in attempts, to slow down password guessing.
+create table if not exists public.login_attempts (
+  username text not null,
+  at timestamptz not null default now()
+);
+create index if not exists login_attempts_recent on public.login_attempts (username, at);
 
 create table if not exists public.valid_words (word text primary key);
 create table if not exists public.start_words (
@@ -44,23 +65,27 @@ create table if not exists public.start_words (
   optimal integer not null
 );
 
+-- Left over from the first version (Google / email log-in).
+drop function if exists public.create_merge_token();
+drop function if exists public.claim_guest(uuid);
+drop function if exists public.josele_is_guest();
+drop table if exists public.merge_tokens;
+
 alter table public.players enable row level security;
 alter table public.results enable row level security;
-alter table public.merge_tokens enable row level security;
+alter table public.player_links enable row level security;
+alter table public.login_attempts enable row level security;
 alter table public.valid_words enable row level security;
 alter table public.start_words enable row level security;
 
-revoke all on public.players, public.results, public.merge_tokens,
+revoke all on public.players, public.results, public.player_links, public.login_attempts,
   public.valid_words, public.start_words from anon, authenticated;
 
--- Read-only policies as a second line of defence. There are deliberately no
--- insert/update/delete policies: writes only happen inside the functions below.
+-- There are deliberately no policies at all: with row-level security on and no
+-- policy, direct reads and writes are refused even if a privilege is granted by
+-- mistake. Everything goes through the functions below.
 drop policy if exists "players read own row" on public.players;
-create policy "players read own row" on public.players
-  for select to authenticated using (id = auth.uid());
 drop policy if exists "players read own results" on public.results;
-create policy "players read own results" on public.results
-  for select to authenticated using (player_id = auth.uid());
 
 -- ---------------------------------------------------------------- word lists
 
@@ -111,30 +136,50 @@ begin
 end
 $$;
 
+create or replace function public.josele_is_offensive(p_text text) returns boolean
+language plpgsql immutable set search_path = public as $$
+declare
+  folded text := lower(translate(p_text, /*FOLD_FROM*/, /*FOLD_TO*/));
+  squashed text := replace(replace(folded, ' ', ''), '_', '');
+begin
+  return exists (select 1 from unnest(/*BLOCK_ANYWHERE*/) b where position(b in squashed) > 0)
+      or string_to_array(replace(folded, '_', ' '), ' ') && /*BLOCK_WORD*/;
+end
+$$;
+
 -- Same rules as validate() in js/names.js. Returns the cleaned name or raises.
 create or replace function public.josele_clean_name(p_name text) returns text
 language plpgsql immutable set search_path = public as $$
 declare
   v text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
-  folded text;
-  squashed text;
 begin
   if v = '' then raise exception 'Please type a name'; end if;
   if char_length(v) > /*MAX_LENGTH*/ then raise exception 'Name is too long'; end if;
   if v !~ /*ALLOWED*/ then raise exception 'Letters, numbers and spaces only'; end if;
-  folded := lower(translate(v, /*FOLD_FROM*/, /*FOLD_TO*/));
-  squashed := replace(folded, ' ', '');
-  if exists (select 1 from unnest(/*BLOCK_ANYWHERE*/) b where position(b in squashed) > 0)
-     or string_to_array(folded, ' ') && /*BLOCK_WORD*/ then
-    raise exception 'Please pick another name';
-  end if;
+  if josele_is_offensive(v) then raise exception 'Please pick another name'; end if;
   return v;
 end
 $$;
 
-create or replace function public.josele_is_guest() returns boolean
-language sql stable set search_path = public as $$
-  select coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false)
+-- Same rules as validateUsername() in js/names.js.
+create or replace function public.josele_clean_username(p_username text) returns text
+language plpgsql immutable set search_path = public as $$
+declare
+  v text := btrim(coalesce(p_username, ''));
+begin
+  if char_length(v) < /*USERNAME_MIN*/ or char_length(v) > /*MAX_LENGTH*/ then
+    raise exception 'Username must be /*USERNAME_MIN*/ to /*MAX_LENGTH*/ characters';
+  end if;
+  if v !~ /*USERNAME_ALLOWED*/ then raise exception 'Username: letters, numbers and _ only'; end if;
+  if josele_is_offensive(v) then raise exception 'Please pick another username'; end if;
+  return v;
+end
+$$;
+
+-- The player this browser is currently playing as (null if none yet).
+create or replace function public.josele_player() returns uuid
+language sql stable security definer set search_path = public as $$
+  select player_id from player_links where auth_uid = auth.uid()
 $$;
 
 -- Rebuilds a player's streaks from their stored results.
@@ -169,11 +214,16 @@ create or replace function public.set_name(p_name text) returns text
 language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := auth.uid();
+  pid uuid := josele_player();
   v text := josele_clean_name(p_name);
 begin
   if uid is null then raise exception 'Not signed in'; end if;
-  insert into players (id, name) values (uid, v)
-  on conflict (id) do update set name = excluded.name;
+  if pid is null then
+    insert into players (name) values (v) returning id into pid;
+    insert into player_links (auth_uid, player_id) values (uid, pid);
+  else
+    update players set name = v where id = pid;
+  end if;
   return v;
 end
 $$;
@@ -182,17 +232,15 @@ $$;
 create or replace function public.submit_result(p_day date, p_path text[]) returns json
 language plpgsql security definer set search_path = public as $$
 declare
-  uid uuid := auth.uid();
+  uid uuid := josele_player();
   today date := josele_today();
   n integer := coalesce(array_length(p_path, 1), 0);
   s public.start_words;
   diff integer;
   existing public.results;
 begin
-  if uid is null then raise exception 'Not signed in'; end if;
-  if not exists (select 1 from players where id = uid) then
-    raise exception 'Choose a name first';
-  end if;
+  if auth.uid() is null then raise exception 'Not signed in'; end if;
+  if uid is null then raise exception 'Choose a name first'; end if;
   -- Only today's puzzle counts (with ten minutes of grace just after midnight).
   if p_day is null or not (p_day = today or (p_day = today - 1
       and (now() at time zone 'America/Sao_Paulo')::time < time '00:10')) then
@@ -233,15 +281,16 @@ $$;
 create or replace function public.my_profile() returns json
 language plpgsql stable security definer set search_path = public as $$
 declare
-  uid uuid := auth.uid();
+  uid uuid := josele_player();
   today date := josele_today();
   p public.players;
 begin
-  if uid is null then return null; end if;
+  if auth.uid() is null then return null; end if;
   select * into p from players where id = uid;
   return json_build_object(
     'name', p.name,
-    'guest', josele_is_guest(),
+    'username', p.username,
+    'guest', p.username is null,
     'today', today,
     'current_streak', case when p.last_solved >= today - 1 then p.current_streak else 0 end,
     'best_streak', coalesce(p.best_streak, 0),
@@ -259,6 +308,87 @@ begin
 end
 $$;
 
+-- ---------------------------------------------------------------- accounts
+
+-- Turns the current guest into an account. Their name and results stay with them.
+create or replace function public.sign_up(p_name text, p_username text, p_password text) returns json
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  uid uuid := auth.uid();
+  pid uuid := josele_player();
+  v_name text := josele_clean_name(p_name);
+  v_user text := josele_clean_username(p_username);
+begin
+  if uid is null then raise exception 'Not signed in'; end if;
+  if p_password is null or char_length(p_password) < /*PASSWORD_MIN*/ then
+    raise exception 'Password must be at least /*PASSWORD_MIN*/ characters';
+  end if;
+  if char_length(p_password) > 72 then raise exception 'Password is too long'; end if;
+  if pid is not null and exists (select 1 from players where id = pid and username is not null) then
+    raise exception 'You are already logged in';
+  end if;
+  if exists (select 1 from players where lower(username) = lower(v_user)) then
+    raise exception 'That username is taken';
+  end if;
+  if pid is null then
+    insert into players (name) values (v_name) returning id into pid;
+    insert into player_links (auth_uid, player_id) values (uid, pid);
+  end if;
+  begin
+    update players set name = v_name, username = v_user,
+           pass_hash = crypt(p_password, gen_salt('bf', 10))
+     where id = pid;
+  exception when unique_violation then
+    raise exception 'That username is taken';
+  end;
+  return my_profile();
+end
+$$;
+
+-- Points this browser at an existing account. Guest progress made on this browser
+-- before logging in is moved into the account.
+create or replace function public.log_in(p_username text, p_password text) returns json
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  uid uuid := auth.uid();
+  cur uuid := josele_player();
+  key text := lower(btrim(coalesce(p_username, '')));
+  target public.players;
+begin
+  if uid is null then raise exception 'Not signed in'; end if;
+  delete from login_attempts where at < now() - interval '1 day';
+  if (select count(*) from login_attempts where username = key and at > now() - interval '10 minutes') >= 8 then
+    return json_build_object('error', 'Too many tries. Wait a few minutes and try again.');
+  end if;
+  select * into target from players where lower(username) = key;
+  if target.id is null or target.pass_hash is null
+     or target.pass_hash <> crypt(coalesce(p_password, ''), target.pass_hash) then
+    insert into login_attempts (username) values (key);
+    return json_build_object('error', 'Wrong username or password');
+  end if;
+  delete from login_attempts where username = key;
+
+  if cur is distinct from target.id then
+    if cur is not null and exists (select 1 from players where id = cur and username is null) then
+      insert into results (player_id, day, steps, optimal, path, finished_at)
+      select target.id, day, steps, optimal, path, finished_at from results where player_id = cur
+      on conflict (player_id, day) do nothing;
+      delete from players where id = cur;   -- the guest; its link and results go with it
+    end if;
+    insert into player_links (auth_uid, player_id) values (uid, target.id)
+    on conflict (auth_uid) do update set player_id = excluded.player_id;
+    perform josele_recompute(target.id);
+  end if;
+  return my_profile();
+end
+$$;
+
+-- This browser stops playing as the account (the account itself is untouched).
+create or replace function public.log_out() returns void
+language sql security definer set search_path = public as $$
+  delete from player_links where auth_uid = auth.uid()
+$$;
+
 -- ---------------------------------------------------------------- leaderboards
 
 create or replace function public.leaderboard_today() returns json
@@ -274,9 +404,9 @@ language sql stable security definer set search_path = public as $$
     'total', (select count(*) from r),
     'rows', coalesce((select json_agg(json_build_object(
         'rank', rank, 'name', name, 'steps', steps, 'star', star,
-        'me', player_id = auth.uid()) order by rank) from r where rank <= 50), '[]'::json),
+        'me', coalesce(player_id = josele_player(), false)) order by rank) from r where rank <= 50), '[]'::json),
     'me', (select json_build_object('rank', rank, 'name', name, 'steps', steps, 'star', star, 'me', true)
-           from r where player_id = auth.uid())
+           from r where player_id = josele_player())
   )
 $$;
 
@@ -294,55 +424,12 @@ language sql stable security definer set search_path = public as $$
     'total', (select count(*) from r),
     'rows', coalesce((select json_agg(json_build_object(
         'rank', rank, 'name', name, 'current', current, 'best', best,
-        'me', id = auth.uid()) order by rank) from r where rank <= 50), '[]'::json),
+        'me', coalesce(id = josele_player(), false)) order by rank) from r where rank <= 50), '[]'::json),
     'me', (select json_build_object(
         'rank', (select rank from r where r.id = s.id),
         'name', name, 'current', current, 'best', best, 'me', true)
-      from s where id = auth.uid())
+      from s where id = josele_player())
   )
-$$;
-
--- ---------------------------------------------------------------- guest -> account
-
--- Step 1, called while still a guest: get a one-time token for this guest's progress.
-create or replace function public.create_merge_token() returns uuid
-language plpgsql security definer set search_path = public as $$
-declare
-  uid uuid := auth.uid();
-  t uuid;
-begin
-  if uid is null or not josele_is_guest() then raise exception 'Only guests need this'; end if;
-  if not exists (select 1 from players where id = uid) then return null; end if;
-  delete from merge_tokens where player_id = uid or created_at < now() - interval '1 day';
-  insert into merge_tokens (player_id) values (uid) returning token into t;
-  return t;
-end
-$$;
-
--- Step 2, called after logging in: move the guest's name and results to the account.
-create or replace function public.claim_guest(p_token uuid) returns boolean
-language plpgsql security definer set search_path = public as $$
-declare
-  uid uuid := auth.uid();
-  g uuid;
-begin
-  if uid is null or josele_is_guest() then raise exception 'Log in first'; end if;
-  delete from merge_tokens
-   where token = p_token and created_at > now() - interval '1 day'
-  returning player_id into g;
-  if g is null or g = uid then return false; end if;
-  -- Never take progress from a real (non-guest) account.
-  if not exists (select 1 from auth.users where id = g and is_anonymous) then return false; end if;
-
-  insert into players (id, name) select uid, name from players where id = g
-  on conflict (id) do nothing;
-  insert into results (player_id, day, steps, optimal, path, finished_at)
-  select uid, day, steps, optimal, path, finished_at from results where player_id = g
-  on conflict (player_id, day) do nothing;
-  delete from players where id = g;
-  perform josele_recompute(uid);
-  return true;
-end
 $$;
 
 -- ---------------------------------------------------------------- permissions
@@ -351,5 +438,6 @@ revoke all on all functions in schema public from public, anon, authenticated;
 grant execute on function public.leaderboard_today(), public.leaderboard_streaks()
   to anon, authenticated;
 grant execute on function public.set_name(text), public.submit_result(date, text[]),
-  public.my_profile(), public.create_merge_token(), public.claim_guest(uuid)
+  public.my_profile(), public.sign_up(text, text, text), public.log_in(text, text),
+  public.log_out()
   to authenticated;
