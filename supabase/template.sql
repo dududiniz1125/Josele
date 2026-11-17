@@ -171,6 +171,7 @@ begin
     raise exception 'Username must be /*USERNAME_MIN*/ to /*MAX_LENGTH*/ characters';
   end if;
   if v !~ /*USERNAME_ALLOWED*/ then raise exception 'Username: letters, numbers and _ only'; end if;
+  if lower(v) = any (/*RESERVED_USERNAMES*/) then raise exception 'That username is reserved'; end if;
   if josele_is_offensive(v) then raise exception 'Please pick another username'; end if;
   return v;
 end

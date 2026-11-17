@@ -554,6 +554,7 @@ begin
     raise exception 'Username must be 3 to 15 characters';
   end if;
   if v !~ '^[A-Za-z0-9_]+$' then raise exception 'Username: letters, numbers and _ only'; end if;
+  if lower(v) = any (array['jose', 'josele']) then raise exception 'That username is reserved'; end if;
   if josele_is_offensive(v) then raise exception 'Please pick another username'; end if;
   return v;
 end

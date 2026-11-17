@@ -61,6 +61,8 @@
   var USERNAME_MIN = 3;
   var USERNAME_ALLOWED = '^[A-Za-z0-9_]+$';
   var PASSWORD_MIN = 6;
+  // Usernames nobody may register (compared without capitals).
+  var RESERVED_USERNAMES = ['jose', 'josele'];
 
   function validateUsername(raw) {
     var u = String(raw == null ? '' : raw).trim();
@@ -68,6 +70,7 @@
       return { ok: false, reason: 'Username must be ' + USERNAME_MIN + ' to ' + MAX_LENGTH + ' characters' };
     }
     if (!new RegExp(USERNAME_ALLOWED).test(u)) return { ok: false, reason: 'Username: letters, numbers and _ only' };
+    if (RESERVED_USERNAMES.indexOf(u.toLowerCase()) !== -1) return { ok: false, reason: 'That username is reserved' };
     if (isOffensive(u)) return { ok: false, reason: 'Please pick another username' };
     return { ok: true, username: u };
   }
@@ -81,6 +84,7 @@
 
   var api = {
     USERNAME_MIN: USERNAME_MIN, USERNAME_ALLOWED: USERNAME_ALLOWED, PASSWORD_MIN: PASSWORD_MIN,
+    RESERVED_USERNAMES: RESERVED_USERNAMES,
     validateUsername: validateUsername, validatePassword: validatePassword,
     MAX_LENGTH: MAX_LENGTH, ALLOWED: ALLOWED, FOLD_FROM: FOLD_FROM, FOLD_TO: FOLD_TO,
     BLOCK_ANYWHERE: BLOCK_ANYWHERE, BLOCK_WORD: BLOCK_WORD,

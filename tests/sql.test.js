@@ -128,7 +128,7 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
       if (local.ok) assert.equal(server.value, local.name || local.username);
     };
     for (const s of names) await check('josele_clean_name', N.validate(s), s);
-    const usernames = ['mari', 'Mari_10', 'ab', 'x'.repeat(16), 'has space', 'josé', 'a-b', 'sh1t', 'big_puta', 'f_u_c_k', ' edu ', '', 'abc'];
+    const usernames = ['mari', 'Mari_10', 'ab', 'x'.repeat(16), 'has space', 'josé', 'a-b', 'sh1t', 'big_puta', 'f_u_c_k', ' edu ', '', 'abc', 'jose', 'JOSE', 'Jose', 'josele', 'jose2', 'san_jose'];
     for (const s of usernames) await check('josele_clean_username', N.validateUsername(s), s);
   });
 
@@ -279,6 +279,7 @@ const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
     await rejects(signUp(alice, 'Alice', 'bad name', 'secret1'), /letters, numbers and _ only/);
     await rejects(signUp(alice, 'Alice', 'sh1thead', 'secret1'), /another username/);
     await rejects(signUp(alice, 'Alice', 'alice', '12345'), /at least 6 characters/);
+    await rejects(signUp(alice, 'Alice', 'JoSe', 'secret1'), /username is reserved/);
     await rejects(signUp(alice, 'sh1t', 'alice', 'secret1'), /another name/);
     const prof = await signUp(alice, 'Alice Souza', 'Alice', 'secret1');
     assert.equal(prof.name, 'Alice Souza');

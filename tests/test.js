@@ -95,5 +95,10 @@ test('player names: 15 characters, letters/numbers/spaces, no offensive words', 
   }
 });
 
+test('usernames: jose is reserved in any capitals, similar ones are fine', () => {
+  for (const u of ['jose', 'JOSE', 'Jose', ' jose ', 'josele']) assert.equal(N.validateUsername(u).reason, 'That username is reserved', u);
+  for (const u of ['jose2', 'san_jose', 'maria']) assert.equal(N.validateUsername(u).ok, true, u);
+});
+
 console.log(`\n${passed} passed, ${game.starts.length} eligible start words, today would be ` +
   JSON.stringify(game.today()));
