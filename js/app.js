@@ -553,14 +553,9 @@
       body.appendChild(p);
       if (steps === puzzle.optimal) body.appendChild(el('p', '', 'Perfect — that\'s an optimal path! 😎'));
 
-      var paths = el('div', 'paths');
-      [['Your path', state.rows], ['An optimal path', puzzle.path]].forEach(function (pair) {
-        var col = el('div');
-        col.appendChild(el('h3', '', pair[0]));
-        col.appendChild(mini(pair[1]));
-        paths.appendChild(col);
-      });
-      body.appendChild(paths);
+      // Only the player's own path: the best route stays secret until tomorrow.
+      body.appendChild(el('h3', '', 'Your path'));
+      body.appendChild(mini(state.rows));
 
       var actions = el('div', 'actions');
       actions.appendChild(button('btn', 'Share', function () {

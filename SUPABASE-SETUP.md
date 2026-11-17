@@ -90,7 +90,7 @@ If you skip this, hide nothing: Google login still works for everyone, and the e
 - The only way to save a result is the `submit_result` database function. It works out today's start word from the date on the server, checks that every word is in the word list, that each step changes exactly one letter, that no word is repeated and that the path ends at JOSE. Anything else is rejected.
 - A result is always saved under the player who is signed in, and only once per player per day.
 
-What it cannot prevent: someone looking up a shortest path (the game shows one after you finish) and typing it in from a second device. The server only guarantees that every result on the board is a real, legal solution.
+What it cannot prevent: someone working out a shortest path elsewhere and typing it in. The server only guarantees that every result on the board is a real, legal solution.
 
 ## If you change the word lists or the name filter
 
